@@ -2,10 +2,12 @@ import os
 
 import dotenv
 from fastapi import FastAPI
+from langchain.globals import set_debug
 from langchain_community.chat_models import ChatSparkLLM
 from langchain_community.embeddings import HuggingFaceEmbeddings, SparkLLMTextEmbeddings
 from langchain_community.llms.sparkllm import SparkLLM
 from langchain_qdrant import QdrantVectorStore
+from utils.logging_util import logger
 
 from embedding.doc_embeddings import DocEmbeddings
 
@@ -15,16 +17,19 @@ app = FastAPI()
 
 class RagService:
     def __init__(self):
+        self.logger = logger
+        self.logger.info("Initializing RagService")
+
         self.llm = llm = SparkLLM()
         self.llm_chat = ChatSparkLLM()
         self.embeddings = HuggingFaceEmbeddings(model_name="BAAI/bge-large-en-v1.5")
-        # self.embeddings = SparkLLMTextEmbeddings()
         self.qdrant = QdrantVectorStore.from_existing_collection(
             embedding=self.embeddings,
             collection_name="rag_docs",
             url="http://localhost:6333",
         )
-
+        self.logger.info("RagService initialized")
+        self.logger.info("Starting to load the docs from given path.")
         self.__docEmbeddings = DocEmbeddings(self.embeddings, self.qdrant)
         self.__docEmbeddings.load_documents("./data")
 
@@ -33,6 +38,7 @@ class RagService:
 
 
 if __name__ == "__main__":
+    set_debug(True)
     os.environ["no_proxy"] = "localhost,127.0.0.1"
     rag_service = RagService()
     # rag_service.query("Where is Xian?")
