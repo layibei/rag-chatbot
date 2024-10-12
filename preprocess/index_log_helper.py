@@ -21,8 +21,6 @@ class IndexLogHelper():
         return session()
 
     def save(self, index_log: IndexLog):
-        if index_log.id is None:
-            return
 
         with self.create_session() as session:
             try:
@@ -34,7 +32,7 @@ class IndexLogHelper():
                 self.logger.error(f'Error while saving index log,{traceback.format_exc()}')
                 raise e
 
-    def find_by_checksum(self, checksum: str):
+    def find_by_checksum(self, checksum: str) -> IndexLog:
         if checksum is None:
             return None
 
@@ -47,7 +45,7 @@ class IndexLogHelper():
 
             return log
 
-    def find_by_source(self, file_path: str):
+    def find_by_source(self, file_path: str) -> IndexLog:
         if file_path is None:
             return None
 

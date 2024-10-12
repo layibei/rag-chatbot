@@ -1,7 +1,8 @@
-from sqlalchemy import Column, String, DateTime, create_engine, Integer
-from sqlalchemy.orm import declarative_base, sessionmaker
+from sqlalchemy import Column, String, DateTime, Integer
+from sqlalchemy.orm import declarative_base
 
-class IndexLog():
+Base = declarative_base()
+class IndexLog(Base):
     __tablename__ = 'index_logs'
 
     id = Column(Integer, primary_key=True)
