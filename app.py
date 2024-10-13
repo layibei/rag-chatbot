@@ -11,6 +11,7 @@ from langchain_postgres import PGVector
 from langchain_qdrant import QdrantVectorStore
 from langchain_redis import RedisConfig, RedisVectorStore
 
+from config.model_settings import CommonConfig
 from preprocess.index_log_helper import IndexLogHelper
 from utils.logging_util import logger
 
@@ -20,9 +21,11 @@ dotenv.load_dotenv()
 set_debug(True)
 app = FastAPI()
 
-llm = SparkLLM()
-llm_chat = ChatSparkLLM()
-embeddings = HuggingFaceEmbeddings(model_name="BAAI/bge-large-en-v1.5")
+base_config = CommonConfig()
+
+llm = base_config.get_model("llm")
+llm_chat = base_config.get_model("chatllm")
+embeddings = base_config.get_model("embedding")
 # embeddings = HuggingFaceEmbeddings(model="sentence-transformers/all-mpnet-base-v2")
 collection_name = "rag_docs"
 # vector_store = QdrantVectorStore.from_existing_collection(
@@ -55,10 +58,17 @@ async def preprocess():
     await docEmbeddingsProcessor.load_documents("./data")
 
 
-def query(self, query):
-    return llm.invoke(query, top_k=3, vector_store=self.qdrant)
+@app.get("/query")
+def query(query):
+    return llm.invoke(query, top_k=3, vector_store=vector_store)
 
 
 if __name__ == "__main__":
     os.environ["no_proxy"] = "localhost,127.0.0.1"
     asyncio.run(preprocess())
+
+    from langchain.globals import set_debug
+    set_debug(True)
+    import uvicorn
+
+    uvicorn.run(app, host="0.0.0.0", port=8000)
