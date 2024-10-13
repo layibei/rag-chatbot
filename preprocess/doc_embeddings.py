@@ -2,18 +2,23 @@ import asyncio
 import hashlib
 import os.path
 import traceback
-from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor
 
 import xxhash
 from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
 from langchain_core.vectorstores import VectorStore
+from langchain_qdrant import QdrantVectorStore
+from langchain_redis import RedisVectorStore
 from qdrant_client.http import models
+from redis.commands.search.indexDefinition import IndexDefinition, IndexType
+from redis.commands.search.query import Query
+from redisvl.schema.fields import TagField, NumericField
 
 from loader.loader_factories import DocumentLoaderFactory
 from preprocess import IndexLog
 from preprocess.index_log_helper import IndexLogHelper
-from utils.id_utils import get_id
+from utils.date_util import get_timestamp_in_utc
 from utils.logging_util import logger
 
 
@@ -23,6 +28,7 @@ class DocEmbeddingsProcessor:
         self.embeddings = embeddings
         self.vectorstore = vectorstore
         self.indexLogHelper = indexLogHelper
+        self.executor = ThreadPoolExecutor(max_workers=5)
 
     async def load_documents(self, dir_path: str):
         # Load documents from given dir_path
@@ -45,6 +51,9 @@ class DocEmbeddingsProcessor:
                 self.logger.warning(f"File {path} is too large(>=1Gb), skip it.")
                 return
 
+            # read content from file
+            content = open(path, mode='r', encoding='utf-8', errors='ignore').read()
+            checksum = self.generate_xxhash64(content)
             # 1.check if the file has been persisted or not
             log = self.indexLogHelper.find_by_source(path)
             # 2. if not, then load it and add it to vector store
@@ -52,15 +61,15 @@ class DocEmbeddingsProcessor:
                 self.logger.info(f"Loading document: {path}")
                 documents = await self.aload_document(path)
                 self.logger.info(f"Loaded {len(documents)} documents from {path}")
-                self.add_documents(documents)
+                self.add_documents(documents, checksum)
                 self.logger.info(f"Persisting index log for file: {path}")
                 self.indexLogHelper.save(IndexLog(
-                    id=get_id(),
+                    # id=get_id(),
                     source=path,
                     checksum=self.generate_xxhash64(path),
-                    indexed_time=datetime.now().timestamp(),
+                    indexed_time=get_timestamp_in_utc(),
                     indexed_by="system",
-                    modified_time=datetime.now().timestamp(),
+                    modified_time=get_timestamp_in_utc(),
                     modified_by="system",
                 ))
                 self.logger.info(f"Persisted index log for file: {path}")
@@ -68,16 +77,14 @@ class DocEmbeddingsProcessor:
             else:
                 # hash on the file content
                 self.logger.info(f"Document {path} has been indexed before, checking for changes.")
-                # read content from file
-                content = open(path, 'r').read()
-                checksum = self.generate_xxhash64(content)
+
                 # if not change on the content, then ignore
-                if log.checksum == checksum:
+                if log.checksum == str(checksum):
                     self.logger.info(f"Document {path} has not been changed, ignore this file.")
                     return
 
                 # if changes are detected, search for the document in vector store and delete those persisted docs to rebuild them
-                self.logger.info(f"Document {path} has been indexed before.")
+                self.logger.info(f"Document {path} has been indexed before, checksum:{checksum}.")
                 searched_docs = self.search_by_metadata({"source": path, "checksum": checksum})
                 if searched_docs is None or len(searched_docs) < 1:
                     self.logger.warning(f"Document {path} has been indexed before but not found in vector store.")
@@ -86,20 +93,23 @@ class DocEmbeddingsProcessor:
                 self.vectorstore.delete(ids)
 
                 # update the index log - checksum, last modified time
-                log.set_checksum(checksum)
-                log.set_modified_by("system")
-                log.set_modified_time(datetime.now().timestamp())
+                log.checksum = checksum
+                log.modified_by = "system"
+                log.modified_time = get_timestamp_in_utc()
                 self.indexLogHelper.save(log)
 
                 self.logger.info(f"Loading document: {path}")
                 documents = await self.aload_document(path)
                 self.logger.info(f"Persisting index log for file: {path}")
-                self.add_documents(documents)
+                self.add_documents(documents, checksum)
                 self.logger.info(f"Persisted index log for file: {path}")
 
     async def aload_document(self, path: str):
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(self.executor, DocumentLoaderFactory.get_loader, path, path)
+        # get loader from DocumentLoaderFactory by file
+        loader = DocumentLoaderFactory.get_loader(path)
+        # then load the document
+        return await loop.run_in_executor(self.executor, loader.load, path)
 
     def add_documents(self, documents, checksum: str):
         """
@@ -126,8 +136,8 @@ class DocEmbeddingsProcessor:
                     # unique_key = self.generate_unique_key(content)
                     unique_key = self.generate_xxhash64(content)
                     metadata = doc.metadata if doc.metadata is not None else {}
-                    metadata["key"] = unique_key
-                    metadata["checksum"] = checksum
+                    metadata["checksum"] = unique_key
+                    metadata["parent_checksum"] = checksum
 
                     # The document does not exist, so we just add it
                     ids.append(unique_key)
@@ -168,24 +178,40 @@ class DocEmbeddingsProcessor:
         if not metadata:
             return None
 
-        # search by metadata.checksum or metadata.source
-        metadata_filter = models.Filter(
-            should=[
-                models.FieldCondition(
-                    key="metadata.source",
-                    match=models.MatchValue(value=metadata.get("source", ""))  # Replace with your document ID
-                ),
-                models.FieldCondition(
-                    key="metadata.checksum",
-                    match=models.MatchValue(value=metadata.get("checksum", ""))  # Replace with your document ID
-                )
-            ]
-        )
-        results = self.vectorstore.similarity_search(
-            query="",
-            k=None,  # return all
-            filter=metadata_filter,
-        )
+        results = None
+        # search by metadata.parent_checksum or metadata.source
+        # Construct the query safely
+        source_value = metadata.get('source', '')
+        parent_checksum_value = metadata.get('parent_checksum', '')
+
+        # Sanitize inputs to prevent injection attacks
+        source_value = source_value.replace("'", "\\'")
+        parent_checksum_value = parent_checksum_value.replace("'", "\\'")
+        if isinstance(self.vectorstore, QdrantVectorStore):
+            metadata_filter = models.Filter(
+                should=[
+                    models.FieldCondition(
+                        key="metadata.source",
+                        match=models.MatchValue(value=source_value)  # Replace with your document ID
+                    ),
+                    models.FieldCondition(
+                        key="metadata.parent_checksum",
+                        match=models.MatchValue(value=parent_checksum_value)
+                        # Replace with your document ID
+                    )
+                ]
+            )
+            results = self.vectorstore.similarity_search(
+                query="",
+                k=None,  # return all
+                filter=metadata_filter,
+            )
+
+        elif isinstance(self.vectorstore, RedisVectorStore):
+            # Apply filter using Redis Search Query
+            query = f"@source:{source_value} @parent_checksum:{parent_checksum_value}"
+            results = self.vectorstore.similarity_search(query)
+
         self.logger.debug(f"Search results: {results}")
 
         return results

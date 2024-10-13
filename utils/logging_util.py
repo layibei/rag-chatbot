@@ -14,6 +14,8 @@ def configure_logger(log_file="app.log"):
     custom_format = (
         "<green>{time:YYYY-MM-DD HH:mm:ss}</green> | "
         "{level.icon} {level.name:<8} | "
+        "<blue>{thread.name}</blue> | "
+        "<blue>{process}</blue> | "
         "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - "
         "{message}"
     )
@@ -44,6 +46,8 @@ def configure_logger(log_file="app.log"):
             "format": (
                 "<green>{time:YYYY-MM-DD HH:mm:ss}</green> | "
                 "<level>{level.icon} {level.name:<8}</level> | "
+                "<blue>{thread.name}</blue> | "
+                "<blue>{process}</blue> | "
                 "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - "
                 "<level>{message}</level>"
             ),
@@ -58,7 +62,6 @@ def configure_logger(log_file="app.log"):
 # Initialize the logger
 logger = configure_logger()
 logger.level("DEBUG")
-
 
 if __name__ == "__main__":
     logger.info("This is an info message.")
