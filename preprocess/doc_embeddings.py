@@ -36,6 +36,9 @@ class DocEmbeddingsProcessor:
             await self.__load(dir_path)
         else:
             self.logger.error(f"Directory {dir_path} does not exist.")
+            return;
+
+        self.logger.info("document pre-process are done.")
 
     async def __load(self, path: str):
         """
@@ -103,6 +106,11 @@ class DocEmbeddingsProcessor:
                 self.logger.info(f"Persisting index log for file: {path}")
                 self.add_documents(documents, checksum)
                 self.logger.info(f"Persisted index log for file: {path}")
+            # move file to archive folder
+            self.logger.info(f"Moving file: {path} to archive folder.")
+            os.rename(path, path.replace("input","archive"))
+
+
 
     async def aload_document(self, path: str):
         loop = asyncio.get_event_loop()

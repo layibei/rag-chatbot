@@ -55,7 +55,7 @@ docEmbeddingsProcessor = DocEmbeddingsProcessor(embeddings, vector_store, indexL
 
 async def preprocess():
     logger.info("Loading documents...")
-    await docEmbeddingsProcessor.load_documents("./data")
+    await docEmbeddingsProcessor.load_documents("./data/input")
 
 
 @app.get("/query")
