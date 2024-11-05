@@ -12,3 +12,4 @@ class IndexLog(Base):
     modified_time = Column(DateTime)
     modified_by = Column(String)
     checksum = Column(String, unique=True)
+    status = Column(String)

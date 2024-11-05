@@ -49,12 +49,13 @@ drop table if exists index_logs;
 drop index if exists unique_index_log;
 create table if not exists index_logs (
     id bigserial primary key,
-    source varchar(255) not null,
+    source varchar(512) not null,
     checksum varchar(255) not null,
     indexed_time timestamp not null,
     indexed_by varchar(128) not null,
     modified_time timestamp not null,
     modified_by varchar(128) not null,
+    status varchar(128) not null,
     constraint unique_index_log unique (source, checksum)
 );
 

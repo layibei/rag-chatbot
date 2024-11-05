@@ -14,5 +14,7 @@ class RequestState(TypedDict):
     documents: list[Document]
     original_query: str
     transform_query_count: int
+    web_search_count: int
     is_transformed_query: bool
     final_response: Any
+

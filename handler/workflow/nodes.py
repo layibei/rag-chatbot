@@ -1,3 +1,4 @@
+from langchain_community.tools import TavilySearchResults
 from langchain_core.documents import Document
 from langchain_core.language_models import BaseChatModel
 from langchain_core.output_parsers import JsonOutputParser, StrOutputParser
@@ -15,6 +16,8 @@ class ProcessNodes():
         self.llm = llm
         self.vectorstore = vectorstore
         self.reranker = FlagReranker('BAAI/bge-reranker-large', use_fp16=True)
+        self.state = {}
+        self.web_search_tool = TavilySearchResults(k=3)
 
     def route_query(self, state: RequestState):
         """
@@ -40,15 +43,16 @@ class ProcessNodes():
         )
         self.question_router = router_prompt | self.llm | JsonOutputParser()
 
-        source = self.question_router.invoke({"user_input": state["user_input"]})
+        self.state = state;
+        source = self.question_router.invoke({"user_input": self.state["user_input"]})
         if source['datasource'] == "vectorstore":
             self.logger.info(f"Routing to vectorstore")
-            state["source"] = "vectorstore"
+            self.state["route"] = "vectorstore"
         else:
             self.logger.info(f"Routing to websearch")
-            state["source"] = "websearch"
+            self.state["route"] = "websearch"
 
-        return state
+        return self.state['route']
 
     def retrieve_documents(self, state: RequestState):
         """
@@ -57,13 +61,13 @@ class ProcessNodes():
         :return:
         """
         self.logger.info(f"Retrieving documents")
-        question = state["user_input"]
+        question = self.state["user_input"]
         # documents = self.retriever.get_relevant_documents(question)
         documents = self.retriever.invoke(question)
-        self.logger.info(f"Retrieved {len(documents)} documents")
-        state['documents'] = documents
+        logger.info(f"Retrieved {len(documents)} documents")
+        self.state['documents'] = documents
 
-        return state
+        return self.state
 
     def grade_documents(self, state: RequestState):
         """
@@ -72,8 +76,8 @@ class ProcessNodes():
         :return:
         """
         self.logger.info(f"Grading documents")
-        question = state["user_input"]
-        documents = state['documents']
+        question = self.state["user_input"]
+        documents = self.state['documents']
 
         self.logger.info(f"Grading {len(documents)} documents")
         filtered_documents = []
@@ -82,9 +86,9 @@ class ProcessNodes():
             scores = self.reranker.compute_score([(question, doc.page_content) for doc in documents])
             doc_score_pairs = list(zip(documents, scores))
             filtered_documents = self.filter_relevant_documents(doc_score_pairs, question, filtered_documents)
-            state['documents'] = filtered_documents
+            self.state['documents'] = filtered_documents
 
-        return state
+        return self.state
 
     def filter_relevant_documents(doc_score_pairs, question: str, filtered_documents: list[Document]) -> list[Document]:
         try:
@@ -122,8 +126,8 @@ class ProcessNodes():
         :return:
         """
         # Extract user input and documents from the state
-        question = state.get("user_input")
-        documents = state.get("documents", [])
+        question = self.state.get("user_input")
+        documents = self.state.get("documents", [])
 
         # Validate input
         if not question:
@@ -155,9 +159,9 @@ class ProcessNodes():
         # Invoke the chain with the question and context
         generated_result = chain.invoke({"user_input": question, "context": context})
         # Update the state with the generated response
-        state['response'] = generated_result
+        self.state['response'] = generated_result
 
-        return state
+        return self.state
 
     def grade_generation(self, state: RequestState):
         """
@@ -166,44 +170,83 @@ class ProcessNodes():
         :return:
         """
         self.logger.info(f"Grading generation")
-        question = state["user_input"]
-        response = state["response"]
-        documents = state['documents']
 
-        # fact checking
-        hallucination_prompt = PromptTemplate(
-            template="""
-                    You are a grader assessing whether an answer is grounded in supported by a set of facts. Give a binary score 'yes'
-                    or 'no' score to indicate whether the answer is grounded in supported by a set of facts. Provide the binary score
-                    as a JSON with a single key 'score' and no preamble or explanation.
-                    Here are the facts:
-                    {documents} \n\n
-                    Here is the answer: {generation} \n
-                    """, input_variables=['generation', 'documents'])
-        hallucination_grader = hallucination_prompt | self.llm | JsonOutputParser()
-        isOk = hallucination_grader.invoke({"documents": "\n".join(documents), "generation": response})
-        self.logger.info(f"Grade generation: {isOk}")
+        question = self.state["user_input"]
+        response = self.state["response"]
+        documents = self.state['documents']
+        route = self.state['route']
 
-        # answer checking
-        # answer_prompt = PromptTemplate(
-        #     template="""
-        #             You are a grader assessing whether an answer is useful to resolve a question. Give a binary score 'yes' and 'no'
-        #             to indicate whether the answer is useful to resolve a question. Provide the binary score as JSON with a single key
-        #             'score' and no preamble or explanation.
-        #
-        #             Here is the answer: {generation} \n \n
-        #
-        #             Here is the question: {question} """,
-        #     input_variables=['generation', 'question']
-        # )
-        # answer_grader = answer_prompt | self.llm | JsonOutputParser()
-
-        grade = isOk['score']
-        if grade == "yes":
-            self.logger.info("Answer is grounded in supported by a set of facts")
+        if route == "vectorstore":
+            # fact checking
+            hallucination_prompt = PromptTemplate(
+                template="""
+                        You are a grader assessing whether an answer is grounded in supported by a set of facts. Give a binary score 'yes'
+                        or 'no' score to indicate whether the answer is grounded in supported by a set of facts. Provide the binary score
+                        as a JSON with a single key 'score' and no preamble or explanation.
+                        Here are the facts:
+                        {documents} \n\n
+                        Here is the answer: {generation} \n
+                        """, input_variables=['generation', 'documents'])
+            hallucination_grader = hallucination_prompt | self.llm | JsonOutputParser()
+            isOk = hallucination_grader.invoke({"documents": "\n".join(documents), "generation": response})
+            self.logger.info(f"Grade generation: {isOk}")
+            grade = isOk['score']
+            if grade == "yes":
+                self.logger.info("Answer is grounded in supported by a set of facts")
+                print("--- Grade generation does not address question---")
+                return "successfully"
+            else:
+                self.logger.info("Answer is not grounded in supported by a set of facts")
+                self.state['response'] = "Sorry, I don't know the answer"
+                return "failed"
+        elif route == "websearch":
+            # answer checking
+            answer_prompt = PromptTemplate(
+                template="""
+                        You are a grader assessing whether an answer is useful to resolve a question. Give a binary score 'yes' and 'no'
+                        to indicate whether the answer is useful to resolve a question. Provide the binary score as JSON with a single key
+                        'score' and no preamble or explanation.
+    
+                        Here is the answer: {generation} \n \n
+    
+                        Here is the question: {question} """,
+                input_variables=['generation', 'question']
+            )
+            answer_grader = answer_prompt | self.llm | JsonOutputParser()
             answer_grader_result = answer_grader.invoke({"question": question, "generation": response})
+            if answer_grader_result["score"] == "yes":
+                print("--- Grade generation addresses question---")
+                return "successfully"
+            print("--- Grade generation does not address question---")
+            self.state['response'] = "Sorry, I don't know the answer"
+            return "failed"
+            grade = isOk['score']
         else:
-            self.logger.info("Answer is not grounded in supported by a set of facts")
+            self.state['response'] = "Sorry, I don't know the answer"
+            return "failed"
 
+    def web_search(self, state: RequestState):
+        """
+        Determines whether to generate an answer, or add web search.
 
+        Args:
+            state (dict): the current graph state
+        Returns:
+            state (dict): Binary decision for next node.
+        """
+        question = self.state["question"]
+        documents = self.state.get("documents", [])
+        # web_search_count = self.state.get("web_search_count", 0)
 
+        docs = self.web_search_tool.invoke({"query": question})
+        web_results = "\n".join([d['content'] for d in docs])
+        web_results = Document(page_content=web_results)
+        if documents is not None:
+            documents.append(web_results)
+        else:
+            documents = [web_results]
+
+        # state['web_search_count'] = web_search_count + 1
+        self.state["documents"] = documents
+
+        return self.state

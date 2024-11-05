@@ -11,7 +11,8 @@ from langchain_postgres import PGVector
 from langchain_qdrant import QdrantVectorStore
 from langchain_redis import RedisConfig, RedisVectorStore
 
-from config.model_settings import CommonConfig
+from config.common_settings import CommonConfig
+from handler.generic_query_handler import QueryHandler
 from preprocess.index_log_helper import IndexLogHelper
 from utils.logging_util import logger
 
@@ -51,16 +52,17 @@ vector_store = RedisVectorStore(embeddings, config=config)
 
 indexLogHelper = IndexLogHelper(postgres_uri)
 docEmbeddingsProcessor = DocEmbeddingsProcessor(embeddings, vector_store, indexLogHelper)
+queryHandler = QueryHandler(llm_chat, vector_store)
 
 
 async def preprocess():
     logger.info("Loading documents...")
-    await docEmbeddingsProcessor.load_documents("./data/input")
+    await docEmbeddingsProcessor.load_documents(base_config.get_embedding_config().get("input_path"))
 
 
 @app.get("/query")
 def query(query):
-    return llm.invoke(query, top_k=3, vector_store=vector_store)
+    return queryHandler.handle(query)
 
 
 if __name__ == "__main__":

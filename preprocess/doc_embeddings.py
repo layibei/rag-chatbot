@@ -15,10 +15,12 @@ from redis.commands.search.indexDefinition import IndexDefinition, IndexType
 from redis.commands.search.query import Query
 from redisvl.schema.fields import TagField, NumericField
 
+from config.common_settings import CommonConfig
 from loader.loader_factories import DocumentLoaderFactory
 from preprocess import IndexLog
 from preprocess.index_log_helper import IndexLogHelper
 from utils.date_util import get_timestamp_in_utc
+from utils.id_util import get_id
 from utils.logging_util import logger
 
 
@@ -29,6 +31,7 @@ class DocEmbeddingsProcessor:
         self.vectorstore = vectorstore
         self.indexLogHelper = indexLogHelper
         self.executor = ThreadPoolExecutor(max_workers=5)
+        self.base_config = CommonConfig()
 
     async def load_documents(self, dir_path: str):
         # Load documents from given dir_path
@@ -74,6 +77,7 @@ class DocEmbeddingsProcessor:
                     indexed_by="system",
                     modified_time=get_timestamp_in_utc(),
                     modified_by="system",
+                    status="COMPLETED"
                 ))
                 self.logger.info(f"Persisted index log for file: {path}")
             # 3. if yes, then check if the content has changed or not, if not, by pass this file
@@ -99,18 +103,24 @@ class DocEmbeddingsProcessor:
                 log.checksum = checksum
                 log.modified_by = "system"
                 log.modified_time = get_timestamp_in_utc()
+                log.status = "COMPLETED"
                 self.indexLogHelper.save(log)
 
                 self.logger.info(f"Loading document: {path}")
                 documents = await self.aload_document(path)
                 self.logger.info(f"Persisting index log for file: {path}")
+
+                # set id for documents if it does not exist, document should has id attribute:str
+                for doc in documents:
+                    if not doc.id:
+                        doc.id = get_id()
+
                 self.add_documents(documents, checksum)
                 self.logger.info(f"Persisted index log for file: {path}")
             # move file to archive folder
             self.logger.info(f"Moving file: {path} to archive folder.")
-            os.rename(path, path.replace("input","archive"))
-
-
+            directory, filename = os.path.split(path)
+            os.rename(path, os.path.join(self.base_config.get_embedding_config().get("archive_path"), filename))
 
     async def aload_document(self, path: str):
         loop = asyncio.get_event_loop()
