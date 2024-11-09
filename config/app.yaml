@@ -6,9 +6,13 @@ app:
     llm:
   #    type: "huggingface"
   #    model: "meta-llama/Llama-2-13b-chat-hf"
-      type: "sparkllm"
+#      type: "sparkllm"
+      type: "ollama"
+      model: "qwen2.5"
     chatllm:
-      type: "sparkllm"
+#      type: "sparkllm"
+      type: "ollama"
+      model: "qwen2.5"
   embedding:
     input_path: "./data/input"
     archive_path: "./data/archive"

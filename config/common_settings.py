@@ -5,6 +5,7 @@ import yaml
 from langchain_community.chat_models import ChatSparkLLM
 from langchain_community.llms.sparkllm import SparkLLM
 from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_ollama import OllamaLLM, ChatOllama
 
 from utils.logging_util import logger
 
@@ -43,6 +44,9 @@ class CommonConfig:
             if self.config["app"]["models"]["llm"].get("type") == "sparkllm":
                 return SparkLLM()
 
+            if self.config["app"]["models"]["llm"].get("type") == "ollama" and self.config["app"]["models"]["llm"].get(
+                    "model") != None:
+                return OllamaLLM(model=self.config["app"]["models"]["llm"].get("model"), temperature=0.85)
         elif type == "chatllm":
             self.check_config(self.config, ["app", "models", "chatllm", "type"],
                               "ChatLLM model not configured appropriately in app.yaml")
@@ -50,6 +54,10 @@ class CommonConfig:
 
             if self.config["app"]["models"]["chatllm"].get("type") == "sparkllm":
                 return ChatSparkLLM()
+
+            if self.config["app"]["models"]["chatllm"].get("type") == "ollama" and self.config["app"]["models"][
+                "chatllm"].get("model") != None:
+                return ChatOllama(model=self.config["app"]["models"]["chatllm"].get("model"), temperature=0.85, )
 
         else:
             raise ValueError("Invalid model type")

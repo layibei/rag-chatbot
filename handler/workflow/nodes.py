@@ -63,7 +63,8 @@ class ProcessNodes():
         self.logger.info(f"Retrieving documents")
         question = self.state["user_input"]
         # documents = self.retriever.get_relevant_documents(question)
-        documents = self.retriever.invoke(question)
+        self.logger.info(f"retrieving documents from vectorstore, user_input:{question}")
+        documents = self.vectorstore.as_retriever().invoke(question)
         logger.info(f"Retrieved {len(documents)} documents")
         self.state['documents'] = documents
 
@@ -85,12 +86,12 @@ class ProcessNodes():
             self.logger.info(f"Reranking documents")
             scores = self.reranker.compute_score([(question, doc.page_content) for doc in documents])
             doc_score_pairs = list(zip(documents, scores))
-            filtered_documents = self.filter_relevant_documents(doc_score_pairs, question, filtered_documents)
+            filtered_documents = self.filter_relevant_documents(doc_score_pairs, question)
             self.state['documents'] = filtered_documents
 
         return self.state
 
-    def filter_relevant_documents(doc_score_pairs, question: str, filtered_documents: list[Document]) -> list[Document]:
+    def filter_relevant_documents(self, doc_score_pairs, question: str) -> list[Document]:
         try:
             # Sort documents by score in descending order
             sorted_docs = sorted(doc_score_pairs, key=lambda x: x[1], reverse=True)
@@ -100,7 +101,7 @@ class ProcessNodes():
 
             # Filter documents using list comprehension
             relevant_docs = [
-                doc for doc in sorted_docs
+                doc[0] for doc in sorted_docs
                 if doc[1] >= 1.0 - tolerance
             ]
 
@@ -110,8 +111,7 @@ class ProcessNodes():
                 print(f"-- Grade document, result is {relevance}, question:{question}, document:{doc}")
 
             # Append relevant documents to the filtered list
-            filtered_documents.extend(relevant_docs)
-
+            return relevant_docs
         except TypeError as e:
             print(f"Error: {e}. Ensure doc_score_pairs is a list of tuples.")
             return []
@@ -126,8 +126,8 @@ class ProcessNodes():
         :return:
         """
         # Extract user input and documents from the state
-        question = self.state.get("user_input")
-        documents = self.state.get("documents", [])
+        question = self.state["user_input"]
+        documents = self.state["documents"]
 
         # Validate input
         if not question:
@@ -136,15 +136,16 @@ class ProcessNodes():
             raise ValueError("No documents provided.")
 
         # Concatenate all documents to form the context
-        context = "\n".join(documents)
+        page_contents = [doc.page_content for doc in documents]
+        context = "\n".join(page_contents)
 
         template = """
-                      You are an assistant for question-answering tasks. Use the following pieces of retrieved context to answer the question. 
+                      You are an assistant for question-answering tasks. Use the following pieces of retrieved documents to answer the question. 
                       If you don't know the answer, just say that you don't know. Use three sentences maximum and keep the answer concise.
                       
-                      Question: {user_input}
-                      Context: {context}
-                      Answer:
+                      Question: {user_input} \n
+                      Retrieved documents: \n
+                      {context} \n\n
                   """
         prompt = PromptTemplate(
             input_variables=["context", "user_input"],
@@ -154,7 +155,6 @@ class ProcessNodes():
         chain = (prompt
                  | self.llm
                  | StrOutputParser())
-
 
         # Invoke the chain with the question and context
         generated_result = chain.invoke({"user_input": question, "context": context})
@@ -176,6 +176,9 @@ class ProcessNodes():
         documents = self.state['documents']
         route = self.state['route']
 
+        if not response:
+            raise ValueError("No generated response was provided.")
+
         if route == "vectorstore":
             # fact checking
             hallucination_prompt = PromptTemplate(
@@ -188,9 +191,12 @@ class ProcessNodes():
                         Here is the answer: {generation} \n
                         """, input_variables=['generation', 'documents'])
             hallucination_grader = hallucination_prompt | self.llm | JsonOutputParser()
-            isOk = hallucination_grader.invoke({"documents": "\n".join(documents), "generation": response})
+            page_contents = [doc.page_content for doc in documents]
+            context = "\n".join(page_contents)
+            isOk = hallucination_grader.invoke({"documents": context, "generation": response})
             self.logger.info(f"Grade generation: {isOk}")
-            grade = isOk['score']
+            if isOk is not None:
+                grade = isOk['score']
             if grade == "yes":
                 self.logger.info("Answer is grounded in supported by a set of facts")
                 print("--- Grade generation does not address question---")
@@ -235,7 +241,7 @@ class ProcessNodes():
             state (dict): Binary decision for next node.
         """
         question = self.state["question"]
-        documents = self.state.get("documents", [])
+        documents = self.state["documents"]
         # web_search_count = self.state.get("web_search_count", 0)
 
         docs = self.web_search_tool.invoke({"query": question})

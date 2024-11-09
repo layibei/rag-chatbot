@@ -1,6 +1,7 @@
 from langchain_core import memory
 from langchain_core.language_models import BaseChatModel
 from langchain_core.vectorstores import VectorStore
+from langgraph.checkpoint import BaseCheckpointSaver, MemorySaver
 from langgraph.constants import END
 from langgraph.graph.state import StateGraph
 
@@ -13,10 +14,12 @@ class QueryProcessWorkflow():
     def __init__(self, llm: BaseChatModel, vectorstore: VectorStore):
         self.logger = logger
         self.llm = llm
-        self.graph = self.__setup_graph()
         self.nodes = ProcessNodes(llm, vectorstore)
+        self.graph = self.__setup_graph()
 
     def __setup_graph(self):
+        # Initialize a default checkpointer if none is provided
+        memory = MemorySaver()
         workflow = StateGraph(RequestState)
 
         workflow.add_node("web_search", self.nodes.web_search)
@@ -29,8 +32,10 @@ class QueryProcessWorkflow():
             "vectorstore": "retrieve_documents",
         })
 
-        workflow.add_edge("websearch", "generate")
-        workflow.add_conditional_edges("generate", self.nodes.grade_generation(), {
+        workflow.add_edge("web_search", "generate")
+        workflow.add_edge("retrieve_documents", "grade_documents")
+        workflow.add_edge("grade_documents", "generate")
+        workflow.add_conditional_edges("generate", self.nodes.grade_generation, {
             "successfully": END,
             "failed": END,
         }, )

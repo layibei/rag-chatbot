@@ -8,7 +8,8 @@ class RequestState(TypedDict):
     user_id: str
     session_id: str
     request_id: str
-    user_input: Annotated[list[str], add_messages]
+    # user_input: Annotated[list[str], add_messages]
+    user_input: str
     response: Any
     source: str
     documents: list[Document]

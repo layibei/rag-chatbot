@@ -34,8 +34,14 @@ class DocEmbeddingsProcessor:
         self.base_config = CommonConfig()
 
     async def load_documents(self, dir_path: str):
+        """
+        Load documents from given path.
+        :param dir_path:
+        :return:
+        """
         # Load documents from given dir_path
         if os.path.exists(dir_path):
+            self.logger.info(f"Loading documents from directory: {dir_path}")
             await self.__load(dir_path)
         else:
             self.logger.error(f"Directory {dir_path} does not exist.")
@@ -48,6 +54,11 @@ class DocEmbeddingsProcessor:
         load document from give path, the path might be a directory or a file, if it's a directory, then call itself to
         continue to iterate it
         """
+        # check if the file directory is empty
+        if not os.listdir(path):
+            self.logger.info(f"Directory {path} is empty, will by pass the document preprocessing.")
+            return
+
         if os.path.isdir(path):
             files = os.listdir(path)
             await asyncio.gather(*[self.__load(os.path.join(path, file)) for file in files])

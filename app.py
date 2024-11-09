@@ -3,6 +3,7 @@ import os
 
 import dotenv
 from fastapi import FastAPI
+from datetime import timedelta
 from langchain.globals import set_debug
 from langchain_community.chat_models import ChatSparkLLM
 from langchain_huggingface import HuggingFaceEmbeddings
@@ -52,7 +53,7 @@ vector_store = RedisVectorStore(embeddings, config=config)
 
 indexLogHelper = IndexLogHelper(postgres_uri)
 docEmbeddingsProcessor = DocEmbeddingsProcessor(embeddings, vector_store, indexLogHelper)
-queryHandler = QueryHandler(llm_chat, vector_store)
+queryHandler = QueryHandler(llm, vector_store)
 
 
 async def preprocess():
@@ -61,15 +62,18 @@ async def preprocess():
 
 
 @app.get("/query")
-def query(query):
+def query(query: str):
+    logger.info("Query: " + query)
     return queryHandler.handle(query)
 
 
 if __name__ == "__main__":
     os.environ["no_proxy"] = "localhost,127.0.0.1"
+    # os.environ["https_proxy"] = "127.0.0.1:7890"
     asyncio.run(preprocess())
 
     from langchain.globals import set_debug
+
     set_debug(True)
     import uvicorn
 
