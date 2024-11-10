@@ -7,6 +7,7 @@ from langchain_core.document_loaders import BaseLoader
 from langchain_core.documents import Document
 from langchain_text_splitters.base import TextSplitter
 
+from config.common_settings import CommonConfig
 from utils.logging_util import logger
 
 
@@ -17,6 +18,7 @@ class DocumentLoader(ABC):
 
     def __init__(self):
         self.logger = logger
+        self.base_config = CommonConfig()
 
     def load(self, file_path: str) -> List[Document]:
         # Input validation
@@ -64,3 +66,11 @@ class DocumentLoader(ABC):
         Check if the given file path is supported by the loader.
         """
         return False
+
+    def get_trunk_size(self):
+        embedding_config = self.base_config.get_embedding_config()
+        return embedding_config.get('trunk_size', 1024)
+
+    def get_overlap(self):
+        embedding_config = self.base_config.get_embedding_config()
+        return embedding_config.get('overlap', 0)

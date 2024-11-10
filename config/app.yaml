@@ -4,11 +4,13 @@ app:
       type: "huggingface"
       model: "BAAI/bge-large-en-v1.5"
     llm:
-  #    type: "huggingface"
-  #    model: "meta-llama/Llama-2-13b-chat-hf"
+#      type: "huggingface"
+#      model: "meta-llama/Llama-2-13b-chat-hf"
 #      type: "sparkllm"
-      type: "ollama"
-      model: "qwen2.5"
+#      type: "ollama"
+#      model: "qwen2.5"
+      type: gemini
+      model: gemini-pro
     chatllm:
 #      type: "sparkllm"
       type: "ollama"

@@ -69,7 +69,7 @@ def query(query: str):
 
 if __name__ == "__main__":
     os.environ["no_proxy"] = "localhost,127.0.0.1"
-    # os.environ["https_proxy"] = "127.0.0.1:7890"
+    os.environ["https_proxy"] = "http://127.0.0.1:7890"
     asyncio.run(preprocess())
 
     from langchain.globals import set_debug

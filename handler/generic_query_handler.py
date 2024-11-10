@@ -12,5 +12,5 @@ class QueryHandler:
         self.vectorstore = vectorstore
 
     def handle(self, user_input: str):
-        return QueryProcessWorkflow(self.llm, self.vectorstore).run(user_input)
+        return QueryProcessWorkflow(self.llm, self.vectorstore).invoke(user_input)
 

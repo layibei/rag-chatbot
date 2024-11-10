@@ -42,7 +42,7 @@ class QueryProcessWorkflow():
 
         return workflow.compile(checkpointer=memory)
 
-    def run(self, user_input: str):
+    def invoke(self, user_input: str):
         thread = {
             'configurable': {'thread_id': 1}
         }
@@ -52,4 +52,5 @@ class QueryProcessWorkflow():
         }, thread):
             self.logger.info(s)
 
-        return self.graph.get_state(thread).values("response")
+        state = self.graph.get_state(thread)
+        return state.values.get("response")

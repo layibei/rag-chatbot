@@ -195,6 +195,7 @@ class ProcessNodes():
             context = "\n".join(page_contents)
             isOk = hallucination_grader.invoke({"documents": context, "generation": response})
             self.logger.info(f"Grade generation: {isOk}")
+            grade = None
             if isOk is not None:
                 grade = isOk['score']
             if grade == "yes":

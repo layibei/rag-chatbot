@@ -4,6 +4,7 @@ import dotenv
 import yaml
 from langchain_community.chat_models import ChatSparkLLM
 from langchain_community.llms.sparkllm import SparkLLM
+from langchain_google_genai import GoogleGenerativeAI
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_ollama import OllamaLLM, ChatOllama
 
@@ -47,6 +48,10 @@ class CommonConfig:
             if self.config["app"]["models"]["llm"].get("type") == "ollama" and self.config["app"]["models"]["llm"].get(
                     "model") != None:
                 return OllamaLLM(model=self.config["app"]["models"]["llm"].get("model"), temperature=0.85)
+
+            if self.config["app"]["models"]["llm"].get("type") == "gemini" and self.config["app"]["models"]["llm"].get(
+                    "model") != None:
+                return GoogleGenerativeAI(model=self.config["app"]["models"]["llm"].get("model"), temperature=0.85)
         elif type == "chatllm":
             self.check_config(self.config, ["app", "models", "chatllm", "type"],
                               "ChatLLM model not configured appropriately in app.yaml")
@@ -65,8 +70,8 @@ class CommonConfig:
     def get_embedding_config(self):
         self.check_config(self.config, ["app", "embedding", "input_path"], "input path cannot be null.")
         self.check_config(self.config, ["app", "embedding", "archive_path"], "archive path cannot be null.")
-        self.check_config(self.config, ["app", "embedding", "trunk_size"], "not define the default trunk size")
-        self.check_config(self.config, ["app", "embedding", "overlap"], "overlap is not found")
+        #self.check_config(self.config, ["app", "embedding", "trunk_size"], "not define the default trunk size")
+        #self.check_config(self.config, ["app", "embedding", "overlap"], "overlap is not found")
 
         return {
             "input_path": self.config["app"]["embedding"].get("input_path"),
