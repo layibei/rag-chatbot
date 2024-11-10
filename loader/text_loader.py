@@ -7,7 +7,7 @@ from loader.base_loader import DocumentLoader
 
 class TextDocLoader(DocumentLoader):
     def get_splitter(self, file_path):
-        return RecursiveCharacterTextSplitter(chunk_size=2048, chunk_overlap=200)
+        return RecursiveCharacterTextSplitter(chunk_size=self.get_trunk_size(), chunk_overlap=self.get_overlap())
 
     def get_loader(self, file_path: str) -> BaseLoader:
         if self.is_supported_file_extension(file_path):

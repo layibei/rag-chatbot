@@ -58,7 +58,7 @@ class JsonDocLoader(DocumentLoader):
         pass
 
     def get_splitter(self, file_path: str):
-        return RecursiveJsonSplitter()
+        return RecursiveJsonSplitter(max_chunk_size=self.get_trunk_size(),min_chunk_size=self.get_overlap())
 
     def is_supported_file_extension(self, file_path: str) -> bool:
         if None != file_path and file_path.lower().endswith(".json"):

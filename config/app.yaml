@@ -1,11 +1,24 @@
 app:
+  models:
+    embedding:
+      type: "huggingface"
+      model: "BAAI/bge-large-en-v1.5"
+    llm:
+#      type: "huggingface"
+#      model: "meta-llama/Llama-2-13b-chat-hf"
+#      type: "sparkllm"
+#      type: "ollama"
+#      model: "qwen2.5"
+      type: gemini
+      model: gemini-pro
+    chatllm:
+#      type: "sparkllm"
+      type: "ollama"
+      model: "qwen2.5"
   embedding:
-    type: "huggingface"
-    model: "BAAI/bge-large-en-v1.5"
-  llm:
-#    type: "huggingface"
-#    model: "meta-llama/Llama-2-13b-chat-hf"
-    type: "sparkllm"
-  chatllm:
-    type: "sparkllm"
+    input_path: "./data/input"
+    archive_path: "./data/archive"
+    trunk_size: 2048
+    overlap: 256
+
 

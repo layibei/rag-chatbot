@@ -16,13 +16,13 @@ dotenv.load_dotenv(dotenv_path=os.path.join(project_root, '.env'))
 class TestDocumentLoader(unittest.TestCase):
     def test_load_document_json(self):
         from loader.loader_factories import DocumentLoaderFactory
-        document_loader = DocumentLoaderFactory.get_loader('../data/weather.json')
+        document_loader = DocumentLoaderFactory.get_loader('../data/input/weather.json')
         documents = document_loader.load('../data/weather.json')
         self.assertIsNotNone(documents)
 
     def test_load_document_pdf(self):
         from loader.loader_factories import DocumentLoaderFactory
-        document_loader = DocumentLoaderFactory.get_loader('../data/hotcloud16_burns.pdf')
+        document_loader = DocumentLoaderFactory.get_loader('../data/input/hotcloud16_burns.pdf')
         documents = document_loader.load('../data/hotcloud16_burns.pdf')
 
         embeddings = SparkLLMTextEmbeddings()
@@ -37,6 +37,6 @@ class TestDocumentLoader(unittest.TestCase):
 
     def test_load_document_csv(self):
         from loader.loader_factories import DocumentLoaderFactory
-        document_loader = DocumentLoaderFactory.get_loader('../data/house-price.csv')
+        document_loader = DocumentLoaderFactory.get_loader('../data/input/house-price.csv')
         documents = document_loader.load('../data/house-price.csv')
         self.assertIsNotNone(documents)

@@ -1,5 +1,4 @@
-import ulid
-
+from ulid import ULID
 
 def get_id():
-    return ulid.new().int
+    return ULID().int

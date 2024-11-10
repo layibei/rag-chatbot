@@ -12,7 +12,7 @@ class CSVDocLoader(DocumentLoader):
             return CSVLoader(file_path)
 
     def get_splitter(self, file_path: str) -> TextSplitter:
-        return RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=100)
+        return RecursiveCharacterTextSplitter(chunk_size=self.get_trunk_size(), chunk_overlap=self.get_overlap())
 
     def is_supported_file_extension(self, file_path: str) -> bool:
         if None != file_path and file_path.endswith(".csv"):
