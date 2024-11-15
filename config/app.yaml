@@ -11,10 +11,14 @@ app:
 #      model: "qwen2.5"
       type: gemini
       model: gemini-pro
+#      type: anthropic
+#      model: claude-3-sonnet-20240229
     chatllm:
 #      type: "sparkllm"
-      type: "ollama"
-      model: "qwen2.5"
+#      type: "qwen"
+#      model: "qwen2.5"
+      type: gemini
+      model: gemini-pro
   embedding:
     input_path: "./data/input"
     archive_path: "./data/archive"

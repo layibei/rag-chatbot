@@ -1,7 +1,7 @@
 from langchain_core import memory
 from langchain_core.language_models import BaseChatModel
 from langchain_core.vectorstores import VectorStore
-from langgraph.checkpoint import BaseCheckpointSaver, MemorySaver
+from langgraph.checkpoint.memory import MemorySaver
 from langgraph.constants import END
 from langgraph.graph.state import StateGraph
 
