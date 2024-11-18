@@ -1,5 +1,6 @@
 # rag-chatbot
 Use langchain series to build a simple RAG solution.
+![rag-hl-flow.png](readme%2Frag-hl-flow.png)
 
 # support file formats
 - pdf
