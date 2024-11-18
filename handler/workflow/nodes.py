@@ -241,8 +241,8 @@ class ProcessNodes():
         Returns:
             state (dict): Binary decision for next node.
         """
-        question = self.state["question"]
-        documents = self.state["documents"]
+        question = self.state["user_input"]
+        documents = self.state.get("documents", [])
         # web_search_count = self.state.get("web_search_count", 0)
 
         docs = self.web_search_tool.invoke({"query": question})
