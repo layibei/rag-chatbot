@@ -3,6 +3,9 @@ import hashlib
 import os.path
 import traceback
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
+from typing import Optional, Dict
+from sqlalchemy.exc import IntegrityError
 
 import xxhash
 from langchain_core.documents import Document
@@ -11,13 +14,10 @@ from langchain_core.vectorstores import VectorStore
 from langchain_qdrant import QdrantVectorStore
 from langchain_redis import RedisVectorStore
 from qdrant_client.http import models
-from redis.commands.search.indexDefinition import IndexDefinition, IndexType
-from redis.commands.search.query import Query
-from redisvl.schema.fields import TagField, NumericField
 
 from config.common_settings import CommonConfig
-from loader.loader_factories import DocumentLoaderFactory
-from preprocess import IndexLog
+from preprocess.loader import DocumentLoaderFactory
+from preprocess import IndexLog, Status, SourceType
 from preprocess.index_log_helper import IndexLogHelper
 from utils.date_util import get_timestamp_in_utc
 from utils.id_util import get_id
@@ -25,11 +25,11 @@ from utils.logging_util import logger
 
 
 class DocEmbeddingsProcessor:
-    def __init__(self, embeddings: Embeddings, vectorstore: VectorStore, indexLogHelper: IndexLogHelper):
+    def __init__(self, embeddings: Embeddings, vectorstore: VectorStore, index_log_helper: IndexLogHelper):
         self.logger = logger
         self.embeddings = embeddings
         self.vectorstore = vectorstore
-        self.indexLogHelper = indexLogHelper
+        self.index_log_helper = index_log_helper
         self.executor = ThreadPoolExecutor(max_workers=5)
         self.base_config = CommonConfig()
 
@@ -72,7 +72,7 @@ class DocEmbeddingsProcessor:
             content = open(path, mode='r', encoding='utf-8', errors='ignore').read()
             checksum = self.generate_xxhash64(content)
             # 1.check if the file has been persisted or not
-            log = self.indexLogHelper.find_by_source(path)
+            log = self.index_log_helper.find_by_source(path)
             # 2. if not, then load it and add it to vector store
             if not log:
                 self.logger.info(f"Loading document: {path}")
@@ -80,7 +80,7 @@ class DocEmbeddingsProcessor:
                 self.logger.info(f"Loaded {len(documents)} documents from {path}")
                 self.add_documents(documents, checksum)
                 self.logger.info(f"Persisting index log for file: {path}")
-                self.indexLogHelper.save(IndexLog(
+                self.index_log_helper.save(IndexLog(
                     # id=get_id(),
                     source=path,
                     checksum=self.generate_xxhash64(path),
@@ -115,7 +115,7 @@ class DocEmbeddingsProcessor:
                 log.modified_by = "system"
                 log.modified_time = get_timestamp_in_utc()
                 log.status = "COMPLETED"
-                self.indexLogHelper.save(log)
+                self.index_log_helper.save(log)
 
                 self.logger.info(f"Loading document: {path}")
                 documents = await self.aload_document(path)
@@ -252,3 +252,101 @@ class DocEmbeddingsProcessor:
         if len(results) > 0:
             self.logger.info(f"Found document with id: {id}")
             return results[0]
+
+    def add_index_log(self, source: str, source_type: SourceType) -> Dict:
+        try:
+            # Calculate checksum of content
+            content = self._load_content(source)
+            checksum = str(self.generate_xxhash64(content))
+
+            # Check if document already exists
+            existing_log = self.index_log_helper.find_by_source(source)
+            
+            if existing_log:
+                if existing_log.checksum == checksum:
+                    return {
+                        "message": "the source has already been processed",
+                        "source": source,
+                        "source_type": source_type
+                    }
+
+            # Create new index log
+            index_log = IndexLog(
+                source=source,
+                source_type=source_type,
+                checksum=checksum,
+                created_at=datetime.utcnow(),
+                indexed_by="system",
+                modified_at=datetime.utcnow(),
+                modified_by="system",
+                status=Status.PENDING
+            )
+            
+            self.index_log_helper.save(index_log)
+            return {
+                "id": index_log.id,
+                "source": source,
+                "source_type": source_type
+            }
+
+        except Exception as e:
+            self.logger.error(f"Error adding index log: {str(e)}")
+            raise
+
+    def get_status(self, log_id: int) -> Dict:
+        log = self.index_log_helper.find_by_id(log_id)
+        if not log:
+            raise ValueError(f"Index log {log_id} not found")
+        
+        return {
+            "id": log.id,
+            "status": log.status,
+            "error_message": log.error_message
+        }
+
+    def process_pending_documents(self):
+        """Process one pending document at a time"""
+        try:
+            # Get one pending document with lock
+            log = self.index_log_helper.get_next_pending_with_lock()
+            if not log:
+                return
+
+            try:
+                # Update status to IN_PROGRESS
+                log.status = Status.IN_PROGRESS
+                log.modified_at = datetime.utcnow()
+                self.index_log_helper.save(log)
+
+                # Process document
+                self._process_document(log)
+                
+                # Update status to COMPLETED
+                log.status = Status.COMPLETED
+                log.modified_at = datetime.utcnow()
+                self.index_log_helper.save(log)
+
+            except Exception as e:
+                log.status = Status.FAILED
+                log.error_message = str(e)
+                log.modified_at = datetime.utcnow()
+                self.index_log_helper.save(log)
+                raise
+
+        except Exception as e:
+            self.logger.error(f"Error processing pending documents: {str(e)}")
+            raise
+
+    def _process_document(self, index_log: IndexLog):
+        """Process a single document and store in vector database"""
+        try:
+            # Load and parse document
+            loader = DocumentLoaderFactory.get_loader(index_log.source)
+            documents = loader.load(index_log.source)
+
+            # Add documents to vector store
+            self.add_documents(documents, index_log.checksum)
+
+        except Exception as e:
+            self.logger.error(f"Error processing document: {str(e)}")
+            raise

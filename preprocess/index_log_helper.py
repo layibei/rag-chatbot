@@ -1,11 +1,14 @@
 import traceback
+from typing import Optional
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select, and_
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import declarative_base, sessionmaker
+from datetime import datetime, timedelta
 
 from preprocess import IndexLog
 from utils.logging_util import logger
+from . import Status
 
 Base = declarative_base()
 
@@ -72,3 +75,36 @@ class IndexLogHelper():
                 session.rollback()
                 self.logger.error(f'Error while deleting index log for {file_path}, {traceback.format_exc()}')
                 raise e
+
+    def get_next_pending_with_lock(self) -> Optional[IndexLog]:
+        """Get next pending document with distributed lock"""
+        with self.create_session() as session:
+            try:
+                # Get one pending document with FOR UPDATE SKIP LOCKED
+                stmt = select(IndexLog).where(
+                    and_(
+                        IndexLog.status == Status.PENDING,
+                        # Avoid processing recently modified documents
+                        IndexLog.modified_at < datetime.utcnow() - timedelta(minutes=5)
+                    )
+                ).with_for_update(skip_locked=True).limit(1)
+                
+                result = session.execute(stmt)
+                log = result.scalar_one_or_none()
+                
+                if log:
+                    session.commit()
+                    return log
+                return None
+            except Exception as e:
+                session.rollback()
+                self.logger.error(f"Error getting next pending document: {str(e)}")
+                raise
+
+    def find_by_id(self, log_id: int) -> Optional[IndexLog]:
+        with self.create_session() as session:
+            try:
+                return session.query(IndexLog).get(log_id)
+            except Exception as e:
+                self.logger.error(f"Error finding index log by id {log_id}: {str(e)}")
+                raise

@@ -2,11 +2,11 @@ import logging
 import os
 from typing import Dict, Type
 
-from loader.base_loader import DocumentLoader
-from loader.csv_loader import CSVDocLoader
-from loader.json_loader import JsonDocLoader
-from loader.pdf_loader import PDFDocLoader
-from loader.text_loader import TextDocLoader
+from preprocess.loader.base_loader import DocumentLoader
+from preprocess.loader.csv_loader import CSVDocLoader
+from preprocess.loader.json_loader import JsonDocLoader
+from preprocess.loader.pdf_loader import PDFDocLoader
+from preprocess.loader.text_loader import TextDocLoader
 
 logger = logging.getLogger(__name__)
 

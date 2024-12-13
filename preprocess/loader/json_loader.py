@@ -3,12 +3,11 @@ import os
 from typing import List
 from datetime import datetime, timezone
 
-from langchain_community.document_loaders import JSONLoader
 from langchain_core.document_loaders import BaseLoader
 from langchain_core.documents import Document
 from langchain_text_splitters.json import RecursiveJsonSplitter
 
-from loader.base_loader import DocumentLoader
+from preprocess.loader.base_loader import DocumentLoader
 
 
 class JsonDocLoader(DocumentLoader):
