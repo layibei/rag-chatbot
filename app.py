@@ -16,12 +16,15 @@ from config.common_settings import CommonConfig
 from handler.generic_query_handler import QueryHandler
 from preprocess.index_log_helper import IndexLogHelper
 from utils.logging_util import logger
+from api.embedding_routes import router as embedding_router
 
-from preprocess.doc_embeddings import DocEmbeddingsProcessor
+# from preprocess.doc_embeddings import DocEmbeddingsProcessor
 
 dotenv.load_dotenv()
 set_debug(True)
 app = FastAPI()
+
+app.include_router(embedding_router, prefix="/embedding")
 
 base_config = CommonConfig()
 
@@ -52,13 +55,13 @@ config = RedisConfig(
 vector_store = RedisVectorStore(embeddings, config=config)
 
 indexLogHelper = IndexLogHelper(postgres_uri)
-docEmbeddingsProcessor = DocEmbeddingsProcessor(embeddings, vector_store, indexLogHelper)
+# docEmbeddingsProcessor = DocEmbeddingsProcessor(embeddings, vector_store, indexLogHelper)
 queryHandler = QueryHandler(llm, vector_store)
 
 
-async def preprocess():
-    logger.info("Loading documents...")
-    await docEmbeddingsProcessor.load_documents(base_config.get_embedding_config().get("input_path"))
+# async def preprocess():
+#     logger.info("Loading documents...")
+#     await docEmbeddingsProcessor.load_documents(base_config.get_embedding_config().get("input_path"))
 
 
 @app.get("/query")
@@ -70,7 +73,7 @@ def query(query: str):
 if __name__ == "__main__":
     os.environ["no_proxy"] = "localhost,127.0.0.1"
     os.environ["https_proxy"] = "http://127.0.0.1:7890"
-    asyncio.run(preprocess())
+    # asyncio.run(preprocess())
 
     from langchain.globals import set_debug
 

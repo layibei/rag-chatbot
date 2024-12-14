@@ -18,6 +18,8 @@ an index log, update its status to be IN_PROGRESS, and call _load method to load
     5.4 Save into vector database.
 6.In all above cases, the auditing fields created_at/created_by/modified_at/modified_by should be updated properly.
 7.If any errors are captured during document process, update the error stack info to error_message field in index log table.
+8.Expose an endpoint to list index logs by pagination, so that later can be integrated with web ui to display that.
+9.Enable search function on web page for index,wildcard search on source,createdBy,modifiedBy.
 
 Others:
 1.Table schema of the index log table.

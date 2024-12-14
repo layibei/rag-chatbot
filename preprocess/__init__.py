@@ -9,9 +9,9 @@ class SourceType(str, PyEnum):
     PDF = 'pdf'
     TEXT = 'text'
     JSON = 'json'
+    DOCX = 'docx'
     WEB_PAGE = 'web_page'
     IMAGE = 'image'
-    DOCX = 'docx'
 
 class Status(str, PyEnum):
     PENDING = 'PENDING'

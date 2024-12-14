@@ -8,6 +8,7 @@ from langchain_community.llms.sparkllm import SparkLLM
 from langchain_google_genai import GoogleGenerativeAI, ChatGoogleGenerativeAI
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_ollama import OllamaLLM, ChatOllama
+from langchain_redis import RedisVectorStore, RedisConfig
 
 from utils.logging_util import logger
 
@@ -126,6 +127,15 @@ class CommonConfig:
             "parent_search_enabled": query_agent_config.get("parent_search_enabled", False),
             "web_search_enabled": query_agent_config.get("web_search_enabled", False),
         }
+    def get_vector_store(self):
+        config = RedisConfig(
+            index_name="rag_docs",
+            redis_url=os.environ["REDIS_URL"],
+            distance_metric="COSINE",  # Options: COSINE, L2, IP
+        )
+        vector_store = RedisVectorStore(self.get_model("embedding"), config=config)
+
+        return vector_store
 
     @staticmethod
     def load_yaml_file(file_path: str):
