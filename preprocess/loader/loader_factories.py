@@ -23,12 +23,10 @@ class DocumentLoaderFactory:
 
     # Factory method
     @staticmethod
-    def get_loader(source_type: str) -> DocumentLoader:
-        if source_type is None:
-            logger.error("Source type is None")
-            raise ValueError(f"Source type is Non")
-
-        # if cannot find a loader by source type, TextDocLoader is the default loader.
-        loader_type = DocumentLoaderFactory.loader_mapping.get(source_type.lower(), TextDocLoader)
-
+    def get_loader(file_path: str) -> DocumentLoader:
+        if not file_path:
+            raise ValueError("Invalid file path")
+        
+        file_suffix = os.path.splitext(file_path)[1]
+        loader_type = DocumentLoaderFactory.loader_mapping.get(file_suffix, TextDocLoader)
         return loader_type()

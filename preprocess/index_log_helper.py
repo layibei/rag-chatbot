@@ -28,7 +28,6 @@ class IndexLogHelper():
             try:
                 # Create a new session-bound instance
                 new_log = IndexLog(
-                    id=index_log.id if hasattr(index_log, 'id') else None,
                     source=index_log.source,
                     source_type=index_log.source_type,
                     checksum=index_log.checksum,
@@ -39,8 +38,21 @@ class IndexLogHelper():
                     modified_by=index_log.modified_by,
                     error_message=index_log.error_message if hasattr(index_log, 'error_message') else None
                 )
+
+                if hasattr(index_log, 'id') and index_log.id is not None:
+                    # If updating existing record
+                    existing = session.query(IndexLog).get(index_log.id)
+                    if existing:
+                        for attr, value in new_log.__dict__.items():
+                            if not attr.startswith('_') and attr != 'id':
+                                setattr(existing, attr, value)
+                        session.merge(existing)
+                    else:
+                        session.add(new_log)
+                else:
+                    # For new records
+                    session.add(new_log)
                 
-                session.add(new_log)
                 session.commit()
                 
                 # Update original instance with new values

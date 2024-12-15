@@ -1,0 +1,221 @@
+{
+  "city": [
+    {
+      "name": "Beijing",
+      "date": "2024-07-12",
+      "temperature": 28,
+      "condition": "Sunny",
+      "humidity": 40
+    },
+    {
+      "name": "Shanghai",
+      "date": "2024-07-12",
+      "temperature": 32,
+      "condition": "Snowy",
+      "humidity": 60
+    },
+    {
+      "name": "Guangzhou",
+      "date": "2024-07-12",
+      "condition": "Rainy",
+      "temperature": 25,
+      "humidity": 80
+    },
+    {
+      "name": "Shenzhen",
+      "date": "2024-07-12",
+      "temperature": 30,
+      "condition": "Sunny",
+      "humidity": 70
+    },
+    {
+      "name": "Hong Kong",
+      "date": "2024-07-12",
+      "temperature": 28,
+      "condition": "Cloudy",
+      "humidity": 50
+    },
+    {
+      "name": "Tokyo",
+      "date": "2024-07-12",
+      "temperature": 25,
+      "condition": "Rainy",
+      "humidity": 90
+    },
+    {
+      "name": "Seoul",
+      "date": "2024-07-12",
+      "temperature": 30,
+      "condition": "Sunny",
+      "humidity": 60
+    },
+    {
+      "name": "Delhi",
+      "date": "2024-07-12",
+      "temperature": 28,
+      "condition": "Cloudy",
+      "humidity": 70
+    },
+    {
+      "name": "Mumbai",
+      "date": "2024-07-12",
+      "temperature": 32,
+      "condition": "Partly Cloudy",
+      "humidity": 50
+    },
+    {
+      "name": "Kolkata",
+      "date": "2024-07-12",
+      "temperature": 30,
+      "condition": "Sunny",
+      "humidity": 60
+    },
+    {
+      "name": "Xian",
+      "date": "2024-07-12",
+      "temperature": 28,
+      "condition": "Cloudy",
+      "humidity": 70
+    },
+    {
+      "name": "Nanjing",
+      "date": "2024-07-12",
+      "temperature": 32,
+      "condition": "Partly Cloudy",
+      "humidity": 50
+    },
+    {
+      "name": "Wuhan",
+      "date": "2024-07-12",
+      "temperature": 30,
+      "condition": "Sunny",
+      "humidity": 60
+    },
+    {
+      "name": "Shijiazhuang",
+      "date": "2024-07-12",
+      "temperature": 28,
+      "condition": "Cloudy",
+      "humidity": 40
+    },
+    {
+      "name": "Changchun",
+      "date": "2024-07-12",
+      "temperature": 32,
+      "condition": "Partly Cloudy",
+      "humidity": 50
+    },
+    {
+      "name": "Hefei",
+      "date": "2024-07-12",
+      "temperature": 30,
+      "condition": "Sunny",
+      "humidity": 60
+    },
+    {
+      "name": "Hangzhou",
+      "date": "2024-07-12",
+      "temperature": 28,
+      "condition": "Cloudy",
+      "humidity": 70
+    },
+    {
+      "name": "Zhengzhou",
+      "date": "2024-07-12",
+      "temperature": 32,
+      "condition": "Partly Cloudy",
+      "humidity": 50
+    },
+    {
+      "name": "Nanchang",
+      "date": "2024-07-12",
+      "temperature": 30,
+      "condition": "Sunny",
+      "humidity": 60
+    },
+    {
+      "name": "Changsha",
+      "date": "2024-07-12",
+      "temperature": 28,
+      "condition": "Cloudy",
+      "humidity": 70
+    },
+    {
+      "name": "Hangzhou",
+      "date": "2024-07-12",
+      "temperature": 32,
+      "condition": "Partly Cloudy",
+      "humidity": 50
+    },
+    {
+      "name": "Zhengzhou",
+      "date": "2024-07-12",
+      "temperature": 30,
+      "condition": "Sunny",
+      "humidity": 60
+    },
+    {
+      "name": "Xining",
+      "date": "2024-07-12",
+      "temperature": 30,
+      "condition": "Sunny",
+      "humidity": 60
+    },
+    {
+      "name": "Lanzhou",
+      "date": "2024-07-12",
+      "temperature": 30,
+      "condition": "Sunny",
+      "humidity": 60
+    },
+    {
+      "name": "Tianjin",
+      "date": "2024-07-12",
+      "temperature": 30,
+      "condition": "Sunny",
+      "humidity": 60
+    },
+    {
+      "name": "Chongqing",
+      "date": "2024-07-12",
+      "temperature": 30,
+      "condition": "Sunny",
+      "humidity": 60
+    },
+    {
+      "name": "Shanghai",
+      "date": "2024-07-12",
+      "temperature": 32,
+      "condition": "Partly Cloudy",
+      "humidity": 60
+    },
+    {
+      "name": "Guangzhou",
+      "date": "2024-07-12",
+      "condition": "Rainy",
+      "temperature": 25,
+      "humidity": 80
+    },
+    {
+      "name": "Shenzhen",
+      "date": "2024-07-12",
+      "temperature": 30,
+      "condition": "Sunny",
+      "humidity": 70
+    },
+    {
+      "name": "Ankang",
+      "date": "2024-07-12",
+      "temperature": 28,
+      "condition": "Cloudy",
+      "humidity": 50
+    },
+    {
+      "name": "Hanzhong",
+      "date": "2024-07-12",
+      "temperature": 28,
+      "condition": "Cloudy",
+      "humidity": 70
+    }
+  ]
+}
