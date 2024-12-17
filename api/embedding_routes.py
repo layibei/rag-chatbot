@@ -1,15 +1,15 @@
-from fastapi import APIRouter, HTTPException, Depends, Query, Header, UploadFile, File
+from fastapi import APIRouter, HTTPException, Query, Header, UploadFile, File
 from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime
 
 from config.common_settings import CommonConfig
-from preprocess import Status, SourceType
+from preprocess.index_log import SourceType
 from preprocess.doc_embeddings_processor import DocEmbeddingsProcessor
 import os
 from pathlib import Path
 
-from preprocess.index_log_helper import IndexLogHelper
+from preprocess.index_log.index_log_helper import IndexLogHelper
 import re
 from urllib.parse import unquote
 

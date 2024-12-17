@@ -1,9 +1,9 @@
 from apscheduler.schedulers.background import BackgroundScheduler
-import socket
 from datetime import datetime, UTC
-from preprocess import Status
+
+from utils.lock.distributed_lock_helper import DistributedLockHelper
+from preprocess.index_log import Status
 from preprocess.loader.loader_factories import DocumentLoaderFactory
-from utils.distributed_lock import DistributedLockHelper
 from utils.logging_util import logger
 import hashlib
 import os
@@ -20,8 +20,7 @@ class DocEmbeddingsProcessor:
         self.index_log_helper = index_log_helper
         self.config = CommonConfig()
         self.distributed_lock = DistributedLockHelper(
-            self.index_log_helper.create_session, 
-            socket.gethostname()
+            db_url=self.config.get_db_url()
         )
         self.scheduler = BackgroundScheduler()
         self.setup_scheduler()

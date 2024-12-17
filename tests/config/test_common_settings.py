@@ -1,15 +1,19 @@
 from unittest.mock import patch, mock_open
+from pathlib import Path
 
 import pytest
 from langchain_community.llms.sparkllm import SparkLLM
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_ollama import ChatOllama
+from pydantic import ValidationError
 
 from config.common_settings import CommonConfig, ConfigError
 
 # Sample YAML configuration for testing
 SAMPLE_CONFIG = """
 app:
+  database:
+    url: "sqlite:///:memory:"
   models:
     llm:
       type: "sparkllm"
@@ -19,17 +23,11 @@ app:
     embedding:
       type: "huggingface"
       model: "sentence-transformers/all-mpnet-base-v2"
-    rerank:
-      type: "huggingface"
-      model: "cross-encoder/ms-marco-MiniLM-L-6-v2"
   embedding:
     input_path: "/input"
-    archive_path: "/archive"
     trunk_size: 512
-    overlap: 50
   query_agent:
     rerank_enabled: true
-    parent_search_enabled: true
     web_search_enabled: false
 """
 
@@ -37,10 +35,8 @@ app:
 @pytest.fixture
 def common_config():
     with patch('builtins.open', mock_open(read_data=SAMPLE_CONFIG)):
-        with patch('os.getcwd', return_value='/fake/path'):
-            with patch('dotenv.load_dotenv') as mock_load_dotenv:
-                config = CommonConfig()
-                return config
+        with patch('os.path.exists', return_value=True):
+            return CommonConfig()
 
 
 def test_init(common_config):
@@ -70,15 +66,12 @@ def test_check_config_invalid_path(common_config):
 def test_get_embedding_config(common_config):
     config = common_config.get_embedding_config()
     assert config["input_path"] == "/input"
-    assert config["archive_path"] == "/archive"
     assert config["trunk_size"] == 512
-    assert config["overlap"] == 50
 
 
 def test_get_query_config(common_config):
     config = common_config.get_query_config()
     assert config["rerank_enabled"] is True
-    assert config["parent_search_enabled"] is True
     assert config["web_search_enabled"] is False
 
 
@@ -102,3 +95,31 @@ def test_get_model_invalid_type(common_config):
 def test_get_model_type_not_string(common_config):
     with pytest.raises(TypeError, match="Model type must be a string"):
         common_config.get_model(123)
+
+
+def test_config_initialization_with_valid_file(tmp_path):
+    config_file = tmp_path / "app.yaml"
+    config_file.write_text(SAMPLE_CONFIG)
+    config = CommonConfig(str(config_file))
+    assert config is not None
+
+
+def test_config_initialization_with_missing_file():
+    with pytest.raises(ConfigError, match="Config file not found"):
+        CommonConfig("/nonexistent/path")
+
+
+def test_config_validation_with_invalid_config(tmp_path):
+    config_file = tmp_path / "invalid.yaml"
+    config_file.write_text("""
+app:
+  models: {}
+    """)
+    with pytest.raises(ConfigError, match="LLM model is not found"):
+        config = CommonConfig(str(config_file))
+        config.get_model("llm")  # This should raise the error
+
+
+def test_get_model_config(common_config):
+    model_config = common_config.get_model_config("llm")
+    assert model_config["type"] == "sparkllm"

@@ -14,10 +14,22 @@ from utils.logging_util import logger
 
 
 class CommonConfig:
-    def __init__(self):
+    def __init__(self, config_path: str = None):
         self.logger = logger
         dotenv.load_dotenv(dotenv_path=os.getcwd() + '/.env')
-        self.config = self.load_yaml_file(os.getcwd() + "/config/app.yaml")
+        
+        if config_path:
+            if not os.path.exists(config_path):
+                raise ConfigError("Config file not found")
+            self.config = self.load_yaml_file(config_path)
+        else:
+            default_path = os.getcwd() + "/config/app.yaml"
+            if not os.path.exists(default_path):
+                raise ConfigError("Config file not found")
+            self.config = self.load_yaml_file(default_path)
+        
+        if not self.config:
+            raise ConfigError("Invalid configuration")
 
     def check_config(self, config, path, message):
         """Helper function to check configuration and raise an error if necessary."""
@@ -108,14 +120,10 @@ class CommonConfig:
     def get_embedding_config(self):
         self.check_config(self.config, ["app", "embedding"], "app embedding is not found.")
         self.check_config(self.config, ["app", "embedding", "input_path"], "input path in app embedding is not found.")
-        self.check_config(self.config, ["app", "embedding", "archive_path"],
-                          "archive path in app embedding is not found.")
 
         return {
             "input_path": self.config["app"]["embedding"].get("input_path"),
-            "archive_path": self.config["app"]["embedding"].get("archive_path"),
-            "trunk_size": self.config["app"]["embedding"].get("trunk_size", 1024),
-            "overlap": self.config["app"]["embedding"].get("overlap", 100)
+            "trunk_size": self.config["app"]["embedding"].get("trunk_size", 1024)
         }
 
     def get_query_config(self):
@@ -153,6 +161,15 @@ class CommonConfig:
         except Exception as e:
             logger.error(f"An unexpected error occurred: {e}")
             return None
+
+    def get_db_url(self) -> str:
+        """Get database URL from config"""
+        return self.config.get("app", {}).get("database", {}).get("url", "sqlite:///:memory:")
+
+    def get_model_config(self, model_type: str):
+        """Get configuration for a specific model type"""
+        self.check_config(self.config, ["app", "models", model_type], f"{model_type} model config not found")
+        return self.config["app"]["models"][model_type]
 
 
 class ConfigError(Exception):

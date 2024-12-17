@@ -11,7 +11,7 @@ class TextDocLoader(DocumentLoader):
 
     def get_loader(self, file_path: str) -> BaseLoader:
         if self.is_supported_file_extension(file_path):
-            return TextLoader(file_path)
+            return TextLoader(file_path, encoding='utf-8')
 
         return None
 
