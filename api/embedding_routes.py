@@ -5,7 +5,7 @@ from datetime import datetime
 
 from config.common_settings import CommonConfig
 from preprocess.index_log import SourceType
-from preprocess.doc_embeddings_processor import DocEmbeddingsProcessor
+from preprocess.doc_index_log_processor import DocEmbeddingsProcessor
 import os
 from pathlib import Path
 

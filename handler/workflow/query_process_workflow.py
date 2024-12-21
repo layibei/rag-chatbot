@@ -1,4 +1,3 @@
-from langchain_core import memory
 from langchain_core.language_models import BaseChatModel
 from langchain_core.vectorstores import VectorStore
 from langgraph.checkpoint.memory import MemorySaver
@@ -42,13 +41,16 @@ class QueryProcessWorkflow():
 
         return workflow.compile(checkpointer=memory)
 
-    def invoke(self, user_input: str):
+    def invoke(self, user_input: str, user_id: str, session_id: str, request_id: str):
         thread = {
             'configurable': {'thread_id': 1}
         }
 
         for s in self.graph.stream({
             'user_input': user_input,
+            'user_id': user_id,
+            'session_id': session_id,
+            'request_id': request_id,
         }, thread):
             self.logger.info(s)
 

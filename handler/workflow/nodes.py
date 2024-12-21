@@ -1,16 +1,17 @@
+from FlagEmbedding import FlagReranker
 from langchain_community.tools import TavilySearchResults
 from langchain_core.documents import Document
 from langchain_core.language_models import BaseChatModel
 from langchain_core.output_parsers import JsonOutputParser, StrOutputParser
 from langchain_core.prompts import PromptTemplate
 from langchain_core.vectorstores import VectorStore
-from datetime import datetime
-from pytz import UTC
 
 from handler.workflow import RequestState
 from utils.logging_util import logger
-from FlagEmbedding import FlagReranker
+
 ...
+
+
 class ProcessNodes():
     def __init__(self, llm: BaseChatModel, vectorstore: VectorStore):
         self.logger = logger
@@ -19,23 +20,6 @@ class ProcessNodes():
         self.reranker = FlagReranker('BAAI/bge-reranker-large', use_fp16=True)
         self.state = {}
         self.web_search_tool = TavilySearchResults(k=3)
-    def _track_step(self, state: RequestState, step_name: str, prompt: str, response: str, tokens: dict):
-        """Track a workflow step execution"""
-        if "messages" not in state:
-            state["messages"] = []
-        if "token_usage" not in state:
-            state["token_usage"] = {}
-            
-        state["messages"].append({
-            "step": step_name,
-            "prompt": prompt,
-            "response": response,
-            "timestamp": datetime.now(UTC).isoformat()
-        })
-        
-        # Accumulate token usage
-        for key, value in tokens.items():
-            state["token_usage"][key] = state["token_usage"].get(key, 0) + value
 
     def route_query(self, state: RequestState):
         """
@@ -60,7 +44,7 @@ class ProcessNodes():
                     """, input_variables=['user_input'],
         )
         self.question_router = router_prompt | self.llm | JsonOutputParser()
-        self.state = state;
+        self.state = state
         source = self.question_router.invoke({"user_input": self.state["user_input"]})
         if source['datasource'] == "vectorstore":
             self.logger.info(f"Routing to vectorstore")
@@ -69,15 +53,8 @@ class ProcessNodes():
             self.logger.info(f"Routing to websearch")
             self.state["route"] = "websearch"
 
-        self._track_step(
-            state=self.state,
-            step_name="route_query",
-            prompt=router_prompt,
-            response=source,
-            tokens=self.llm.get_token_usage()
-        )
-
         return self.state['route']
+
     def retrieve_documents(self, state: RequestState):
         """
         Retrieve relevant documents from vectorstore.
@@ -114,6 +91,7 @@ class ProcessNodes():
             self.state['documents'] = filtered_documents
 
         return self.state
+
     def filter_relevant_documents(self, doc_score_pairs, question: str) -> list[Document]:
         try:
             # Sort documents by score in descending order
@@ -141,6 +119,7 @@ class ProcessNodes():
         except Exception as e:
             print(f"An unexpected error occurred: {e}")
             return []
+
     def generate(self, state: RequestState):
         """
         Generate answer from the retrieved documents.
@@ -182,15 +161,8 @@ class ProcessNodes():
         # Update the state with the generated response
         self.state['response'] = generated_result
 
-        self._track_step(
-            state=self.state,
-            step_name="generate",
-            prompt=prompt,
-            response=generated_result,
-            tokens=self.llm.get_token_usage()
-        )
-
         return self.state
+
     def grade_generation(self, state: RequestState):
         """
         Grade the quality of the generated answer.
@@ -255,10 +227,10 @@ class ProcessNodes():
             print("--- Grade generation does not address question---")
             self.state['response'] = "Sorry, I don't know the answer"
             return "failed"
-            grade = isOk['score']
         else:
             self.state['response'] = "Sorry, I don't know the answer"
             return "failed"
+
     def web_search(self, state: RequestState):
         """
         Determines whether to generate an answer, or add web search.

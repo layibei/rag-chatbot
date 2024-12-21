@@ -1,13 +1,15 @@
 from typing import Optional, List
-from datetime import datetime, UTC, timedelta
-from sqlalchemy import select, and_, or_
+
 from sqlalchemy.exc import SQLAlchemyError
-from config.database import DatabaseError, EntityNotFoundError
-from preprocess.index_log import IndexLog, Status
+
+from config.database.exceptions import DatabaseError
+from preprocess.index_log import IndexLog
+from preprocess.index_log.repositories import IndexLogRepository
 from utils.logging_util import logger
 
+
 class IndexLogHelper:
-    def __init__(self, repository):
+    def __init__(self, repository: IndexLogRepository):
         self.repository = repository
         self.logger = logger
 
@@ -47,9 +49,9 @@ class IndexLogHelper:
             self.logger.error(f'Error while deleting index log for {file_path}')
             raise e
 
-    def get_next_pending_with_lock(self) -> Optional[IndexLog]:
+    def get_pending_index_logs(self) -> List[IndexLog]:
         try:
-            return self.repository.get_next_pending_with_lock()
+            return self.repository.get_pending_index_logs()
         except Exception as e:
             self.logger.error(f"Error getting next pending document: {str(e)}")
             raise

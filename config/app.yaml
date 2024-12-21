@@ -31,5 +31,3 @@ app:
     rerank_enabled: yes
     parent_search_enabled: yes
     web_search_enabled: yes
-
-

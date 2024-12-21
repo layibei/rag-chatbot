@@ -136,6 +136,7 @@ class CommonConfig:
             "web_search_enabled": query_agent_config.get("web_search_enabled", False),
         }
     def get_vector_store(self):
+        self.logger.info("Get vector store.")
         config = RedisConfig(
             index_name="rag_docs",
             redis_url=os.environ["REDIS_URL"],
@@ -161,10 +162,6 @@ class CommonConfig:
         except Exception as e:
             logger.error(f"An unexpected error occurred: {e}")
             return None
-
-    def get_db_url(self) -> str:
-        """Get database URL from config"""
-        return self.config.get("app", {}).get("database", {}).get("url", "sqlite:///:memory:")
 
     def get_model_config(self, model_type: str):
         """Get configuration for a specific model type"""

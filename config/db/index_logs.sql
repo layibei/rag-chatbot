@@ -4,7 +4,7 @@ DROP INDEX IF EXISTS idx_source_checksum;
 
 -- Create index logs table
 CREATE TABLE IF NOT EXISTS index_logs (
-    id BIGSERIAL PRIMARY KEY,
+    id VARCHAR(255) PRIMARY KEY,
     source VARCHAR(1024) NOT NULL,
     source_type VARCHAR(128) NOT NULL,
     checksum VARCHAR(255) NOT NULL,

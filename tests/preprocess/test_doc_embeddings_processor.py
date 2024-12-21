@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import Mock, patch
 from datetime import datetime, UTC
-from preprocess.doc_embeddings_processor import DocEmbeddingsProcessor
+from preprocess.doc_index_log_processor import DocEmbeddingsProcessor
 from preprocess.index_log import Status, IndexLog
 
 @pytest.fixture
