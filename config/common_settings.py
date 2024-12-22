@@ -8,6 +8,7 @@ from langchain_community.llms.sparkllm import SparkLLM
 from langchain_google_genai import GoogleGenerativeAI, ChatGoogleGenerativeAI
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_ollama import OllamaLLM, ChatOllama
+from langchain_postgres import PGVector
 from langchain_redis import RedisVectorStore, RedisConfig
 
 from utils.logging_util import logger
@@ -17,7 +18,7 @@ class CommonConfig:
     def __init__(self, config_path: str = None):
         self.logger = logger
         dotenv.load_dotenv(dotenv_path=os.getcwd() + '/.env')
-        
+
         if config_path:
             if not os.path.exists(config_path):
                 raise ConfigError("Config file not found")
@@ -27,7 +28,7 @@ class CommonConfig:
             if not os.path.exists(default_path):
                 raise ConfigError("Config file not found")
             self.config = self.load_yaml_file(default_path)
-        
+
         if not self.config:
             raise ConfigError("Invalid configuration")
 
@@ -41,7 +42,7 @@ class CommonConfig:
 
     def _get_llm_model(self, config):
         self.check_config(config, ["app", "models", "llm", "type"],
-                         "LLM model is not found")
+                          "LLM model is not found")
         self.logger.info(f"LLM model: {self.config['app']['models']['llm']}")
 
         if self.config["app"]["models"]["llm"].get("type") == "sparkllm":
@@ -63,7 +64,7 @@ class CommonConfig:
 
     def _get_embedding_model(self, config):
         self.check_config(self.config, ["app", "models", "embedding", "type"],
-                              "Embedding model is not found")
+                          "Embedding model is not found")
         self.logger.info(f"Embedding model: {self.config['app']['models']['embedding']}")
 
         if self.config["app"]["models"]["embedding"].get("type") == "huggingface":
@@ -73,7 +74,7 @@ class CommonConfig:
 
     def _get_chatllm_model(self, config):
         self.check_config(self.config, ["app", "models", "chatllm", "type"],
-                              "ChatLLM model is not found")
+                          "ChatLLM model is not found")
         self.logger.info(f"ChatLLM model: {self.config['app']['models']['chatllm']}")
 
         if self.config["app"]["models"]["chatllm"].get("type") == "sparkllm":
@@ -123,6 +124,8 @@ class CommonConfig:
 
         return {
             "input_path": self.config["app"]["embedding"].get("input_path"),
+            "staging_path": self.config["app"]["embedding"].get("staging_path"),
+            "archive_path": self.config["app"]["embedding"].get("archive_path"),
             "trunk_size": self.config["app"]["embedding"].get("trunk_size", 1024)
         }
 
@@ -135,14 +138,22 @@ class CommonConfig:
             "parent_search_enabled": query_agent_config.get("parent_search_enabled", False),
             "web_search_enabled": query_agent_config.get("web_search_enabled", False),
         }
+
     def get_vector_store(self):
         self.logger.info("Get vector store.")
-        config = RedisConfig(
-            index_name="rag_docs",
-            redis_url=os.environ["REDIS_URL"],
-            distance_metric="COSINE",  # Options: COSINE, L2, IP
+        # config = RedisConfig(
+        #     index_name="rag_docs",
+        #     redis_url=os.environ["REDIS_URL"],
+        #     distance_metric="COSINE",  # Options: COSINE, L2, IP
+        # )
+        # vector_store = RedisVectorStore(self.get_model("embedding"), config=config)
+
+        vector_store = PGVector(
+            embeddings=self.get_model("embedding"),
+            collection_name="rag_docs",
+            connection=os.environ["POSTGRES_URI"],
+            use_jsonb=True,
         )
-        vector_store = RedisVectorStore(self.get_model("embedding"), config=config)
 
         return vector_store
 

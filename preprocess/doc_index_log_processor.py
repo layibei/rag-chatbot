@@ -4,16 +4,16 @@ from datetime import datetime, UTC
 from typing import Optional
 
 import dotenv
+from langchain_postgres import PGVector
+from langchain_redis import RedisVectorStore
 
 from config.common_settings import CommonConfig
 from config.database.database_manager import DatabaseManager
 from preprocess.index_log import Status
-from preprocess.loader.loader_factories import DocumentLoaderFactory
 from utils.logging_util import logger
 
 dotenv.load_dotenv(dotenv_path=os.getcwd()+"/.env")
 
-db_manager = DatabaseManager(os.environ["POSTGRES_URI"])
 
 class DocEmbeddingsProcessor:
     def __init__(self, embeddings, vector_store, index_log_helper):
@@ -91,11 +91,35 @@ class DocEmbeddingsProcessor:
             raise
 
     def _remove_existing_embeddings(self, source: str, checksum: str):
-        """Remove existing document embeddings from vector store"""
-        docs = self.vector_store.search_by_metadata({
-            "source": source,
-            "checksum": checksum
-        })
+        """Remove existing document embeddings from vector store
+
+        Args:
+            source (str): The identifier of the document source
+            checksum (str): The checksum of the document, used to uniquely identify the document
+        """
+        # Search for document embeddings that match the source and checksum in the vector store
+        if isinstance(self.vector_store, RedisVectorStore):
+            docs = self.vector_store.search_by_metadata({
+                "source": source,
+                "checksum": checksum
+            })
+        elif isinstance(self.vector_store, PGVector):
+            # Create a filter condition for metadata
+            filter = {
+                "metadata": {
+                    "source": source,
+                    "checksum": checksum
+                }
+            }
+            # Use a dummy vector since we only care about metadata
+            dummy_vector = [0.0] * self.embeddings.dimension
+            docs = self.vector_store.similarity_search_by_vector(
+                embedding=dummy_vector,
+                k=100,  # Adjust based on expected max documents
+                filter=filter
+            )
+
+        # If matching document embeddings are found, delete them from the vector store
         if docs:
             self.vector_store.delete([doc.metadata["id"] for doc in docs])
 

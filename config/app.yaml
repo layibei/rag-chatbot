@@ -24,6 +24,7 @@ app:
       model: "BAAI/bge-reranker-large"
   embedding:
     input_path: "./data/input"
+    staging_path: "./data/staging"
     archive_path: "./data/archive"
     trunk_size: 2048
     overlap: 256

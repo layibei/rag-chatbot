@@ -22,7 +22,7 @@ class ConversationHistoryHelper:
             response=response,
             created_at=datetime.now(UTC)
         )
-        return self.repository.create(conversation)
+        return self.repository.save(conversation)
         
     def get_conversation_history(self, user_id: str, session_id: str, limit: int = 5):
         return self.repository.find_by_session(user_id, session_id, limit) 

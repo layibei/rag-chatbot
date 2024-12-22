@@ -4,7 +4,10 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.ext.declarative import declarative_base
 
+from utils.logging_util import logger
+
 Base = declarative_base()
+
 
 class DatabaseManager:
     _instance = None
@@ -26,8 +29,8 @@ class DatabaseManager:
             yield session
             session.commit()
         except Exception as e:
-            print(f"Error: {e}")
+            logger.error(f"Error: {e}")
             session.rollback()
             raise e
         finally:
-            session.close() 
+            session.close()

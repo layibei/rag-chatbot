@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS index_logs (
     checksum VARCHAR(255) NOT NULL,
     status VARCHAR(128) NOT NULL,
     error_message TEXT,
+    retry_count INT DEFAULT 0,
     created_at TIMESTAMP NOT NULL,
     created_by VARCHAR(128) NOT NULL,
     modified_at TIMESTAMP NOT NULL,

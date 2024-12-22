@@ -23,10 +23,13 @@ class DocumentLoaderFactory:
 
     # Factory method
     @staticmethod
-    def get_loader(file_path: str) -> DocumentLoader:
-        if not file_path:
-            raise ValueError("Invalid file path")
+    def get_loader(file_extension: str) -> DocumentLoader:
+        if not file_extension:
+            raise ValueError("Invalid file extension")
+
+        # check if the file_extension is in the supported list - key in loader_mapping
+        if file_extension not in DocumentLoaderFactory.loader_mapping:
+            raise ValueError(f"Unsupported file extension: {file_extension}")
         
-        file_suffix = os.path.splitext(file_path)[1]
-        loader_type = DocumentLoaderFactory.loader_mapping.get(file_suffix, TextDocLoader)
+        loader_type = DocumentLoaderFactory.loader_mapping.get(file_extension, TextDocLoader)
         return loader_type()

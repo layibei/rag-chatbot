@@ -1,6 +1,6 @@
 import dotenv
 from apscheduler.schedulers.background import BackgroundScheduler
-from datetime import datetime, UTC
+from datetime import datetime, UTC, timedelta
 
 from config.database.database_manager import DatabaseManager
 from preprocess.index_log.index_log_helper import IndexLogHelper
@@ -39,21 +39,35 @@ class DocEmbeddingJob:
         self.scheduler.add_job(
             self.process_pending_documents,
             'interval',
-            minutes=3,
-            id='process_pending_documents'
+            minutes=1,
+            id='process_pending_documents',
+            max_instances=1,  # Explicitly set max instances
+            coalesce=True  # Combine missed runs into a single run
         )
 
         self.scheduler.add_job(
             self.scan_input_directory,
             'interval',
+            minutes=1,
+            id='scan_input_directory',
+            max_instances=1,  # Explicitly set max instances
+            coalesce=True  # Combine missed runs into a single run
+        )
+
+        self.scheduler.add_job(
+            self.reset_stalled_documents,
+            'interval',
             minutes=3,
-            id='scan_input_directory'
+            id='reset_stalled_documents',
+            max_instances=1,
+            coalesce=True
         )
 
         self.scheduler.start()
 
     def process_pending_documents(self):
         """Process one pending document at a time with distributed lock"""
+        self.logger.info("Processing pending documents")
         if not self.distributed_lock_helper.acquire_lock("process_pending_documents"):
             return
 
@@ -92,13 +106,17 @@ class DocEmbeddingJob:
                     log.modified_at = datetime.now(UTC)
                     log.error_message = None
                     self.index_log_helper.save(log)
+                    self.logger.info(f"Document processed: {log.source}")
                 except Exception as e:
                     log.status = Status.FAILED
+                    log.retry_count = (log.retry_count or 0) + 1
                     log.error_message = str(e)
                     log.modified_at = datetime.now(UTC)
                     self.index_log_helper.save(log)
+                    self.logger.error(f"Error processing document: {log.source} - {str(e)}")
         finally:
             self.distributed_lock_helper.release_lock("process_pending_documents")
+        self.logger.info("Finished processing pending documents")
 
     def scan_input_directory(self):
         """Scan archive directory for new documents to process"""
@@ -134,8 +152,30 @@ class DocEmbeddingJob:
                     # Check if already processed
                     existing_log = self.index_log_helper.find_by_checksum(checksum)
                     if existing_log:
-                        self.logger.info(f"Document already processed: {file_name}")
-                        continue
+                        # Get archive path
+                        archive_path = self.config.get_embedding_config()["archive_path"]
+                        staging_path = self.config.get_embedding_config()["staging_path"]
+
+                        # if the file has been indexed
+                        if (existing_log.source == os.path.join(staging_path, file_name) or existing_log.source == os.path.join(archive_path, file_name)) and existing_log.source_type == source_type:
+                            self.logger.info(f"Document has already been indexed: {file_name}, index_log_id: {existing_log.id}")
+                            continue
+                        else:
+                            # move file to staging folder
+                            staging_path = self.config.get_embedding_config()["staging_path"]
+                            os.makedirs(staging_path, exist_ok=True)
+                            stating_file_path = os.path.join(staging_path, file_name)
+                            shutil.move(file_path, stating_file_path)
+                            self.logger.info(f"Moved file to staging folder: {file_name} for later processing.")
+
+                            # Same content (checksum) but different source or type - update the record
+                            existing_log.source = stating_file_path
+                            existing_log.source_type = source_type
+                            existing_log.modified_at = datetime.now(UTC)
+                            existing_log.modified_by = "system"
+                            self.index_log_helper.save(existing_log)
+                            self.logger.info(f"Updated source information for existing document: {file_name}, index_log_id: {existing_log.id}")
+                            continue
 
                     # Create new index log
                     self.add_index_log(
@@ -153,6 +193,32 @@ class DocEmbeddingJob:
             self.distributed_lock_helper.release_lock("scan_input_directory")
 
         self.logger.info("Finished scanning input directory for new documents")
+
+    def reset_stalled_documents(self):
+        """Reset IN_PROGRESS documents that have been stuck for more than 5 minutes"""
+        self.logger.info("Resetting stalled documents")
+        if not self.distributed_lock_helper.acquire_lock("reset_stalled_documents"):
+            self.logger.debug("Skipping reset_stalled_documents: distributed lock not acquired")
+            return
+
+        try:
+            stalled_time = datetime.now(UTC) - timedelta(minutes=5)
+            logs = self.index_log_helper.get_stalled_index_logs(stalled_time)
+            
+            if not logs:
+                return
+
+            for log in logs:
+                self.logger.warning(f"Resetting stalled document: {log.source} (stuck since {log.modified_at})")
+                log.status = Status.PENDING
+                log.modified_at = datetime.now(UTC)
+                log.modified_by = "system"
+                log.error_message = "Reset due to stalled processing"
+                self.index_log_helper.save(log)
+
+        finally:
+            self.distributed_lock_helper.release_lock("reset_stalled_documents")
+        self.logger.info("Finished resetting stalled documents")
 
     def _calculate_checksum(self, source: str) -> str:
         """Calculate checksum for a document"""
@@ -255,4 +321,4 @@ class DocEmbeddingJob:
 
         except Exception as e:
             self.logger.error(f"Error processing document: {str(e)}")
-            raise
+            raise e

@@ -4,6 +4,7 @@ from config.database.repository import BaseRepository
 from conversation import ConversationHistory
 from utils.id_util import get_id
 
+
 class ConversationHistoryRepository(BaseRepository[ConversationHistory]):
     def __init__(self, db_manager):
         super().__init__(db_manager, ConversationHistory)
@@ -23,17 +24,17 @@ class ConversationHistoryRepository(BaseRepository[ConversationHistory]):
 
     def find_by_session(self, user_id: str, session_id: str, limit: int = 5) -> List[ConversationHistory]:
         with self.db_manager.session() as session:
-            results = session.query(ConversationHistory)\
-                .filter_by(user_id=user_id, session_id=session_id)\
-                .order_by(ConversationHistory.created_at.desc())\
-                .limit(limit)\
+            results = session.query(ConversationHistory) \
+                .filter_by(user_id=user_id, session_id=session_id) \
+                .order_by(ConversationHistory.created_at.desc()) \
+                .limit(limit) \
                 .all()
             return [self._create_detached_copy(result) for result in results]
 
     def _create_detached_copy(self, db_obj: Optional[ConversationHistory]) -> Optional[ConversationHistory]:
         if not db_obj:
             return None
-            
+
         return ConversationHistory(
             id=db_obj.id,
             user_id=db_obj.user_id,
@@ -44,4 +45,4 @@ class ConversationHistoryRepository(BaseRepository[ConversationHistory]):
             created_at=db_obj.created_at,
             liked=db_obj.liked,
             token_usage=db_obj.token_usage
-        ) 
+        )

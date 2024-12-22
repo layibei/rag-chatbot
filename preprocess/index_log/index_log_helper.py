@@ -1,9 +1,10 @@
 from typing import Optional, List
+from datetime import datetime
 
 from sqlalchemy.exc import SQLAlchemyError
 
 from config.database.exceptions import DatabaseError
-from preprocess.index_log import IndexLog
+from preprocess.index_log import IndexLog, Status
 from preprocess.index_log.repositories import IndexLogRepository
 from utils.logging_util import logger
 
@@ -82,3 +83,12 @@ class IndexLogHelper:
         except SQLAlchemyError as e:
             self.logger.error('Error while listing logs')
             raise e
+
+    def get_stalled_index_logs(self, stalled_time: datetime):
+        """Get index logs that have been IN_PROGRESS for too long"""
+        return self.repository.find_all(
+            filters={
+                'status': Status.IN_PROGRESS,
+                'modified_at_lt': stalled_time
+            }
+        )

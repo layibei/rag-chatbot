@@ -2,6 +2,7 @@ from datetime import datetime, UTC, timedelta
 from typing import Optional, List
 
 from sqlalchemy import and_, or_
+from sqlalchemy.sql import select
 
 from config.database.repository import BaseRepository
 from preprocess.index_log import IndexLog, Status
@@ -22,43 +23,19 @@ class IndexLogRepository(BaseRepository[IndexLog]):
                     index_log.id = get_id()
                     session.add(index_log)
                 else:
-                    existing = session.get(self.model_class, index_log.id)
-                    if existing:
-                        # Update existing record
-                        for attr, value in index_log.__dict__.items():
-                            if not attr.startswith('_') and attr != 'id':
-                                setattr(existing, attr, value)
-                        session.merge(existing)
-                    else:
-                        # Add as new if not found
-                        session.add(index_log)
+                    index_log = session.merge(index_log)
 
                 session.flush()
                 session.refresh(index_log)
                 return self._create_detached_copy(index_log)
+
             except Exception as e:
                 session.rollback()
-                if "UNIQUE constraint failed" in str(e):
-                    # Handle unique constraint violation
-                    existing = session.query(self.model_class) \
-                        .filter_by(checksum=index_log.checksum) \
-                        .first()
-                    if existing:
-                        # Update existing record
-                        for attr, value in index_log.__dict__.items():
-                            if not attr.startswith('_') and attr != 'id':
-                                setattr(existing, attr, value)
-                        session.merge(existing)
-                        session.flush()
-                        session.refresh(existing)
-                        return self._create_detached_copy(existing)
                 raise
 
     def find_by_checksum(self, checksum: str) -> Optional[IndexLog]:
-        result = self.find_by_filter(checksum=checksum)
-        if not result or len(result) < 1:
-            return None
-        return self._create_detached_copy(result.first) if result else None
+        results = self.find_by_filter(checksum=checksum)
+        return results[0] if results else None
 
     def find_by_source(self, source: str, source_type: str = None) -> Optional[IndexLog]:
         filters = {"source": source}
@@ -67,7 +44,7 @@ class IndexLogRepository(BaseRepository[IndexLog]):
         result = self.find_by_filter(**filters)
         if not result or len(result) < 1:
             return None
-        return self._create_detached_copy(result.first()) if result else None
+        return self._create_detached_copy(result[0]) if result else None
 
     def delete_by_source(self, file_path: str) -> None:
         with self.db_manager.session() as session:
@@ -78,8 +55,12 @@ class IndexLogRepository(BaseRepository[IndexLog]):
     def get_pending_index_logs(self) -> List[IndexLog]:
         with self.db_manager.session() as session:
             stmt = session.query(self.model_class).filter(
-                and_(
-                    self.model_class.status == Status.PENDING
+                or_(
+                    self.model_class.status == Status.PENDING,
+                    and_(
+                        self.model_class.status == Status.FAILED,
+                        self.model_class.retry_count <= 3
+                    )
                 )
             ).with_for_update(skip_locked=True)
 
@@ -87,8 +68,8 @@ class IndexLogRepository(BaseRepository[IndexLog]):
             return [self._create_detached_copy(result) for result in results]
 
     def find_by_id(self, log_id: int) -> Optional[IndexLog]:
-        result = self.find_by_filter(first=True, id=log_id)
-        return self._create_detached_copy(result) if result else None
+        result = self.find_by_filter(id=log_id)
+        return result
 
     def create(self, source: str, source_type: str, checksum: str, status: Status, user_id: str) -> IndexLog:
         with self.db_manager.session() as session:
@@ -151,3 +132,17 @@ class IndexLogRepository(BaseRepository[IndexLog]):
             modified_by=db_obj.modified_by,
             error_message=db_obj.error_message
         )
+
+    def find_all(self, filters: dict):
+        query = select(IndexLog)
+        
+        if 'status' in filters:
+            query = query.where(IndexLog.status == filters['status'])
+        
+        if 'modified_at_lt' in filters:
+            query = query.where(IndexLog.modified_at < filters['modified_at_lt'])
+            
+        with self.db_manager.session() as session:
+            result = session.execute(query)
+            results = result.scalars().all()
+            return [self._create_detached_copy(result) for result in results]

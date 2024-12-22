@@ -1,9 +1,11 @@
+import dotenv
 from fastapi import APIRouter, HTTPException, Query, Header, UploadFile, File
 from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime
 
 from config.common_settings import CommonConfig
+from config.database.database_manager import DatabaseManager
 from preprocess.index_log import SourceType
 from preprocess.doc_index_log_processor import DocEmbeddingsProcessor
 import os
@@ -13,11 +15,16 @@ from preprocess.index_log.index_log_helper import IndexLogHelper
 import re
 from urllib.parse import unquote
 
+from preprocess.index_log.repositories import IndexLogRepository
+
 router = APIRouter()
+
+dotenv.load_dotenv(dotenv_path=os.getcwd()+"/.env")
+db_manager = DatabaseManager(os.environ["POSTGRES_URI"])
 
 base_config = CommonConfig()
 doc_processor = DocEmbeddingsProcessor(base_config.get_model("embedding"), base_config.get_vector_store(),
-                                       IndexLogHelper(os.environ["POSTGRES_URI"]))
+                                       IndexLogHelper(IndexLogRepository(db_manager)))
 
 STAGING_PATH = "./data/staging"  # Configure this in your settings
 

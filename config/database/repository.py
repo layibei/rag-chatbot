@@ -13,7 +13,7 @@ class BaseRepository(Generic[T]):
         """Get the model class from the generic type parameter"""
         raise NotImplementedError
 
-    def create(self, entity: T) -> T:
+    def save(self, entity: T) -> T:
         with self.db_manager.session() as session:
             session.add(entity)
             session.flush()
@@ -42,9 +42,8 @@ class BaseRepository(Generic[T]):
 
     def find_by_filter(self, **filters):
         with self.db_manager.session() as session:
-            query = session.query(self.model_class).filter_by(**filters)
-
-            return query.all()
+            result = session.query(self.model_class).filter_by(**filters).all()
+            return [self._create_detached_copy(item) for item in result]
 
     def count(self, **filters) -> int:
         with self.db_manager.session() as session:

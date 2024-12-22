@@ -1,6 +1,6 @@
 from enum import Enum as PyEnum
 
-from sqlalchemy import Column, String, DateTime, BigInteger, Text, UniqueConstraint
+from sqlalchemy import Column, String, DateTime, BigInteger, Text, UniqueConstraint, Integer
 from sqlalchemy.orm import declarative_base
 
 Base = declarative_base()
@@ -36,6 +36,7 @@ class IndexLog(Base):
     modified_by = Column(String(128), nullable=False)
     status = Column(String(128), nullable=False)
     error_message = Column(Text)
+    retry_count = Column(Integer, nullable=False, default=0)
 
     __table_args__ = (
         UniqueConstraint('source', 'source_type', name='uix_source_source_type'),
