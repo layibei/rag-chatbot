@@ -57,7 +57,7 @@ class IndexLogHelper:
             self.logger.error(f"Error getting next pending document: {str(e)}")
             raise
 
-    def find_by_id(self, log_id: int) -> Optional[IndexLog]:
+    def find_by_id(self, log_id: str) -> Optional[IndexLog]:
         try:
             return self.repository.find_by_id(log_id)
         except Exception as e:

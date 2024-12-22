@@ -67,7 +67,7 @@ class IndexLogRepository(BaseRepository[IndexLog]):
             results = stmt.all()
             return [self._create_detached_copy(result) for result in results]
 
-    def find_by_id(self, log_id: int) -> Optional[IndexLog]:
+    def find_by_id(self, log_id: str) -> Optional[IndexLog]:
         result = self.find_by_filter(id=log_id)
         return result
 
@@ -101,20 +101,21 @@ class IndexLogRepository(BaseRepository[IndexLog]):
                 raise
 
     def list_logs(self, page: int, page_size: int, search: Optional[str] = None) -> List[IndexLog]:
-        query = self.query()
+        with self.db_manager.session() as session:
+            query = session.query(self.model_class)
 
-        if search:
-            search_pattern = f"%{search}%"
-            query = query.filter(
-                or_(
-                    self.model_class.source.ilike(search_pattern),
-                    self.model_class.created_by.ilike(search_pattern),
-                    self.model_class.modified_by.ilike(search_pattern)
+            if search:
+                search_pattern = f"%{search}%"
+                query = query.filter(
+                    or_(
+                        self.model_class.source.ilike(search_pattern),
+                        self.model_class.created_by.ilike(search_pattern),
+                        self.model_class.modified_by.ilike(search_pattern)
+                    )
                 )
-            )
 
-        results = query.offset((page - 1) * page_size).limit(page_size).all()
-        return [self._create_detached_copy(result) for result in results]
+            results = query.offset((page - 1) * page_size).limit(page_size).all()
+            return [self._create_detached_copy(result) for result in results]
 
     def _create_detached_copy(self, db_obj: Optional[IndexLog]) -> Optional[IndexLog]:
         if not db_obj:
@@ -146,3 +147,8 @@ class IndexLogRepository(BaseRepository[IndexLog]):
             result = session.execute(query)
             results = result.scalars().all()
             return [self._create_detached_copy(result) for result in results]
+
+    def query(self):
+        """Create a new query object for the model class."""
+        with self.db_manager.session() as session:
+            return session.query(self.model_class)

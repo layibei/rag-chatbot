@@ -38,11 +38,11 @@ class EmbeddingResponse(BaseModel):
     message: Optional[str]
     source: str
     source_type: str
-    id: Optional[int]
+    id: Optional[str]
 
 
 class IndexLogResponse(BaseModel):
-    id: int
+    id: str
     source: str
     source_type: str
     status: str
@@ -70,7 +70,7 @@ async def add_document(
 
 
 @router.get("/docs/{log_id}")
-async def get_document_by_id(log_id: int):
+async def get_document_by_id(log_id: str):
     try:
         return doc_processor.get_document_by_id(log_id)
     except ValueError as e:
