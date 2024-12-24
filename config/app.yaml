@@ -9,16 +9,16 @@ app:
 #      type: "sparkllm"
 #      type: "ollama"
 #      model: "qwen2.5"
-      type: gemini
-      model: gemini-pro
+      type: "gemini"
+      model: "gemini-1.5-pro"
 #      type: anthropic
 #      model: claude-3-sonnet-20240229
     chatllm:
 #      type: "sparkllm"
 #      type: "qwen"
 #      model: "qwen2.5"
-      type: gemini
-      model: gemini-pro
+      type: "gemini"
+      model: "gemini-1.5-pro"
     rerank:
       type: "flagreranker"
       model: "BAAI/bge-reranker-large"

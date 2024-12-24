@@ -13,18 +13,24 @@ from langchain_redis import RedisVectorStore, RedisConfig
 
 from utils.logging_util import logger
 
+# Get the absolute path of the current file
+CURRENT_FILE_PATH = os.path.abspath(__file__)
+# Get the directory containing the current file
+BASE_DIR = os.path.dirname(CURRENT_FILE_PATH)
+
 
 class CommonConfig:
     def __init__(self, config_path: str = None):
         self.logger = logger
-        dotenv.load_dotenv(dotenv_path=os.getcwd() + '/.env')
+        dotenv.load_dotenv(dotenv_path=BASE_DIR + '/../.env')
 
         if config_path:
-            if not os.path.exists(config_path):
+            path = BASE_DIR + config_path
+            if not os.path.exists(path):
                 raise ConfigError("Config file not found")
-            self.config = self.load_yaml_file(config_path)
+            self.config = self.load_yaml_file(path)
         else:
-            default_path = os.getcwd() + "/config/app.yaml"
+            default_path = BASE_DIR + "/app.yaml"
             if not os.path.exists(default_path):
                 raise ConfigError("Config file not found")
             self.config = self.load_yaml_file(default_path)
@@ -174,12 +180,15 @@ class CommonConfig:
             logger.error(f"An unexpected error occurred: {e}")
             return None
 
-    def get_model_config(self, model_type: str):
-        """Get configuration for a specific model type"""
-        self.check_config(self.config, ["app", "models", model_type], f"{model_type} model config not found")
-        return self.config["app"]["models"][model_type]
-
 
 class ConfigError(Exception):
     """Custom exception for configuration errors."""
     pass
+
+
+if __name__ == "__main__":
+    os.environ["no_proxy"] = "localhost,127.0.0.1"
+    os.environ["https_proxy"] = "http://127.0.0.1:7890"
+    config = CommonConfig()
+    llm = config.get_model("chatllm")
+    logger.info(llm.invoke("What is the capital of France?"))

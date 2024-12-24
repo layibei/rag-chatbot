@@ -1,26 +1,19 @@
 from typing import Any
+
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
-from config.common_settings import CommonConfig
-from config.database.database_manager import DatabaseManager
-from handler.generic_query_handler import QueryHandler
-from conversation.repositories import ConversationHistoryRepository
 
+from config.common_settings import CommonConfig
+from handler.generic_query_handler import QueryHandler
 from utils.id_util import get_id
 
 router = APIRouter(tags=['chat'])
 base_config = CommonConfig()
 
-# Get database manager instance
-db_manager = DatabaseManager()
-
-# Initialize repositories.py
-conversation_repo = ConversationHistoryRepository(db_manager)
 
 query_handler = QueryHandler(
     llm=base_config.get_model("chatllm"),
     vector_store=base_config.get_vector_store(),
-    conversation_repo=conversation_repo,
     config=base_config
 )
 
@@ -58,4 +51,9 @@ async def process_query(
                 "error_message": str(e),
                 "error_code": "INTERNAL_SERVER_ERROR"
             }
-        ) 
+        )
+
+if __name__ == "__main__":
+    response = query_handler.handle(user_input="What is the capital of France?", user_id="test", session_id="test",
+                                  request_id=get_id())
+    print(response)

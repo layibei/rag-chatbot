@@ -1,5 +1,6 @@
 from typing import List, Optional
 from sqlalchemy import func
+from datetime import datetime, UTC
 
 from config.database.repository import BaseRepository
 from conversation import ConversationHistory, ChatSession
@@ -26,7 +27,11 @@ class ConversationHistoryRepository(BaseRepository[ConversationHistory]):
     def find_by_session(self, user_id: str, session_id: str, limit: int = 5) -> List[ConversationHistory]:
         with self.db_manager.session() as session:
             results = session.query(ConversationHistory) \
-                .filter_by(user_id=user_id, session_id=session_id) \
+                .filter_by(
+                    user_id=user_id, 
+                    session_id=session_id,
+                    is_deleted=False
+                ) \
                 .order_by(ConversationHistory.created_at.desc()) \
                 .limit(limit) \
                 .all()
@@ -59,17 +64,20 @@ class ConversationHistoryRepository(BaseRepository[ConversationHistory]):
     
     def get_session_list(self, user_id: str) -> List[ChatSession]:
         with self.db_manager.session() as session:
-       # Subquery to get the earliest message for each session
+            # Subquery to get the earliest message for each non-deleted session
             earliest_messages = (
                 session.query(
                     ConversationHistory.session_id,
                     func.min(ConversationHistory.created_at).label('first_message_time')
                 )
-                .filter(ConversationHistory.user_id == user_id)
+                .filter(
+                    ConversationHistory.user_id == user_id,
+                    ConversationHistory.is_deleted == False
+                )
                 .group_by(ConversationHistory.session_id)
                 .subquery()
             )
-                # Join with the main table to get the user_input for these earliest messages
+            # Join with the main table to get the user_input for these earliest messages
             results = (
                 session.query(
                     ConversationHistory.session_id,
@@ -80,7 +88,10 @@ class ConversationHistoryRepository(BaseRepository[ConversationHistory]):
                     (ConversationHistory.session_id == earliest_messages.c.session_id) &
                     (ConversationHistory.created_at == earliest_messages.c.first_message_time)
                 )
-                .filter(ConversationHistory.user_id == user_id)
+                .filter(
+                    ConversationHistory.user_id == user_id,
+                    ConversationHistory.is_deleted == False
+                )
                 .all()
             )
             return [
@@ -101,12 +112,28 @@ class ConversationHistoryRepository(BaseRepository[ConversationHistory]):
             message = session.query(ConversationHistory).filter(
                 ConversationHistory.user_id == user_id,
                 ConversationHistory.session_id == session_id,
-                ConversationHistory.request_id == request_id
+                ConversationHistory.request_id == request_id,
+                ConversationHistory.is_deleted == False
             ).first()
             
             if not message:
                 return None
             
             message.liked = liked
+            message.modified_at = datetime.now(UTC)
             session.commit()
             return self._create_detached_copy(message)
+
+    def delete_session(self, user_id: str, session_id: str) -> bool:
+        """Mark all messages in a session as deleted"""
+        with self.db_manager.session() as session:
+            result = session.query(ConversationHistory).filter(
+                ConversationHistory.user_id == user_id,
+                ConversationHistory.session_id == session_id,
+                ConversationHistory.is_deleted == False
+            ).update({
+                ConversationHistory.is_deleted: True,
+                ConversationHistory.modified_at: datetime.now(UTC)
+            })
+            session.commit()
+            return result > 0
