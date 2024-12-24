@@ -1,7 +1,8 @@
 from typing import List, Optional
+from sqlalchemy import func
 
 from config.database.repository import BaseRepository
-from conversation import ConversationHistory
+from conversation import ConversationHistory, ChatSession
 from utils.id_util import get_id
 
 
@@ -31,6 +32,15 @@ class ConversationHistoryRepository(BaseRepository[ConversationHistory]):
                 .all()
             return [self._create_detached_copy(result) for result in results]
 
+    def find_by_user(self, user_id: str) -> List[ConversationHistory]:
+        with self.db_manager.session() as session:
+            results = session.query(ConversationHistory) \
+                .filter_by(user_id=user_id) \
+                .order_by(ConversationHistory.created_at.asc()) \
+                .limit(1) \
+                .all()
+            return [self._create_detached_copy(result) for result in results]
+
     def _create_detached_copy(self, db_obj: Optional[ConversationHistory]) -> Optional[ConversationHistory]:
         if not db_obj:
             return None
@@ -46,3 +56,57 @@ class ConversationHistoryRepository(BaseRepository[ConversationHistory]):
             liked=db_obj.liked,
             token_usage=db_obj.token_usage
         )
+    
+    def get_session_list(self, user_id: str) -> List[ChatSession]:
+        with self.db_manager.session() as session:
+       # Subquery to get the earliest message for each session
+            earliest_messages = (
+                session.query(
+                    ConversationHistory.session_id,
+                    func.min(ConversationHistory.created_at).label('first_message_time')
+                )
+                .filter(ConversationHistory.user_id == user_id)
+                .group_by(ConversationHistory.session_id)
+                .subquery()
+            )
+                # Join with the main table to get the user_input for these earliest messages
+            results = (
+                session.query(
+                    ConversationHistory.session_id,
+                    ConversationHistory.user_input
+                )
+                .join(
+                    earliest_messages,
+                    (ConversationHistory.session_id == earliest_messages.c.session_id) &
+                    (ConversationHistory.created_at == earliest_messages.c.first_message_time)
+                )
+                .filter(ConversationHistory.user_id == user_id)
+                .all()
+            )
+            return [
+                ChatSession(
+                    session_id=result.session_id,
+                    title=result.user_input
+                )
+                for result in results
+            ]
+
+    def update_message_like(self, 
+                           user_id: str, 
+                           session_id: str, 
+                           request_id: str,
+                           liked: bool) -> Optional[ConversationHistory]:
+        """Update the liked status of a message and return the updated message"""
+        with self.db_manager.session() as session:
+            message = session.query(ConversationHistory).filter(
+                ConversationHistory.user_id == user_id,
+                ConversationHistory.session_id == session_id,
+                ConversationHistory.request_id == request_id
+            ).first()
+            
+            if not message:
+                return None
+            
+            message.liked = liked
+            session.commit()
+            return self._create_detached_copy(message)

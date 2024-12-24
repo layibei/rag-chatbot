@@ -17,7 +17,7 @@ from urllib.parse import unquote
 
 from preprocess.index_log.repositories import IndexLogRepository
 
-router = APIRouter()
+router = APIRouter(tags=['pre-process'])
 
 dotenv.load_dotenv(dotenv_path=os.getcwd()+"/.env")
 db_manager = DatabaseManager(os.environ["POSTGRES_URI"])

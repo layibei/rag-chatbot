@@ -8,7 +8,7 @@ from conversation.repositories import ConversationHistoryRepository
 
 from utils.id_util import get_id
 
-router = APIRouter()
+router = APIRouter(tags=['chat'])
 base_config = CommonConfig()
 
 # Get database manager instance

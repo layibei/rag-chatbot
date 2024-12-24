@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from langchain.globals import set_debug
 
 from api.chat_routes import router as chat_router
+from api.chat_history_routes import router as chat_history_router
 from api.embedding_routes import router as embedding_router
 from config.common_settings import CommonConfig
 from config.database.database_manager import DatabaseManager
@@ -19,9 +20,10 @@ from utils.lock.repositories import DistributedLockRepository
 dotenv.load_dotenv()
 set_debug(True)
 app = FastAPI()
-
+app.include_router(chat_history_router, prefix="/chat")
 app.include_router(embedding_router, prefix="/embedding")
 app.include_router(chat_router, prefix="/chat")
+
 
 base_config = CommonConfig()
 
