@@ -16,7 +16,7 @@ class ConversationHistory(Base):
     liked = Column(Boolean, nullable=True)
     created_at = Column(DateTime, nullable=False)
     modified_at = Column(DateTime, nullable=False)
-    is_deleted = Column(Boolean, nullable=False)
+    is_deleted = Column(Boolean, nullable=False, default=False)
     created_by = Column(String(128), nullable=False)
     modified_by = Column(String(128), nullable=False)
 

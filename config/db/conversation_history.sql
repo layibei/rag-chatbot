@@ -12,7 +12,6 @@ CREATE TABLE IF NOT EXISTS conversation_history (
     user_input TEXT NOT NULL,
     response TEXT NOT NULL,
     liked BOOLEAN,
-    token_usage JSONB,
     created_at TIMESTAMP NOT NULL,
     modified_at TIMESTAMP NOT NULL,
     is_deleted BOOLEAN NOT NULL DEFAULT FALSE,
@@ -37,7 +36,6 @@ COMMENT ON COLUMN conversation_history.request_id IS 'Unique identifier for each
 COMMENT ON COLUMN conversation_history.user_input IS 'The input/question from the user';
 COMMENT ON COLUMN conversation_history.response IS 'The response from the system';
 COMMENT ON COLUMN conversation_history.liked IS 'Whether the user liked/found helpful this response';
-COMMENT ON COLUMN conversation_history.token_usage IS 'JSON containing token usage statistics';
 COMMENT ON COLUMN conversation_history.created_at IS 'Timestamp when the record was created';
 COMMENT ON COLUMN conversation_history.modified_at IS 'Timestamp when the record was last modified';
 COMMENT ON COLUMN conversation_history.is_deleted IS 'Soft delete flag';

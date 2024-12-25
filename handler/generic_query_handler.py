@@ -1,19 +1,7 @@
-from typing import Dict, Any
-import traceback
-
-from langchain_google_genai import ChatGoogleGenerativeAI
-from pydantic import BaseModel
-from langchain_core.messages import HumanMessage
-
-from conversation.repositories import ConversationHistoryRepository
-from utils.logging_util import logger
-from conversation.conversation_history_helper import ConversationHistoryHelper
-from handler.workflow.query_process_workflow import QueryProcessWorkflow
 import traceback
 from typing import Dict, Any
 
 from langchain_core.messages import HumanMessage
-from langchain_google_genai import ChatGoogleGenerativeAI
 from pydantic import BaseModel
 
 from conversation.conversation_history_helper import ConversationHistoryHelper
@@ -46,7 +34,13 @@ class QueryHandler:
 
     def handle(self, user_input: str, user_id: str, session_id: str, request_id: str) -> Dict[str, Any]:
         try:
-            self.logger.info(f"Handling user query, user_id:{user_id}, session_id:{session_id}, request_id:{request_id}, user_input:{user_id}")
+            self.logger.info(f"Handling user query, request_id:{request_id}, user_input:{user_id}")
+            
+            # add conversation history to the user input - the top 10 messages
+            conversation_history = self.conversation_helper.get_conversation_history(user_id, session_id, limit=10)
+            conversation_history_str = "\n".join([f"{msg.user_input} -> {msg.response}" for msg in conversation_history])
+            user_input = f"{user_input}\n\nConversation History:\n{conversation_history_str}"
+
             # Process query
             if self._is_greeting(user_input, user_id, request_id):
                 response = self._handle_greeting()
@@ -74,8 +68,6 @@ class QueryHandler:
             self.logger.error(
                 f"Error processing query: {str(e)}\n"
                 f"User Input: {user_input}\n"
-                f"User ID: {user_id}\n"
-                f"Session ID: {session_id}\n"
                 f"Request ID: {request_id}\n"
                 f"Stacktrace:\n{traceback.format_exc()}"
             )
@@ -97,8 +89,6 @@ class QueryHandler:
             self.logger.error(
                 f"Error in query processing: {str(e)}\n"
                 f"User Input: {user_input}\n"
-                f"User ID: {user_id}\n"
-                f"Session ID: {session_id}\n"
                 f"Request ID: {request_id}\n"
                 f"Stacktrace:\n{traceback.format_exc()}"
             )
@@ -112,16 +102,23 @@ class QueryHandler:
             raise ValueError("All inputs must be strings")
 
         try:
-            # Create a message for the LLM using the newer invoke method
-            message = HumanMessage(content=f"Is this a greeting? Respond with 'true' or 'false': {user_input}")
+            # Create a more specific prompt for better accuracy
+            prompt = (
+                "Analyze if this is ONLY a greeting/hello message. Respond ONLY with 'true' or 'false'.\n"
+                "Rules:\n"
+                "- True: standalone greetings like 'hi', 'hello', 'hey', 'good morning', etc.\n"
+                "- False: if the message contains any questions, requests, or additional content\n"
+                "- False: if it's a farewell or thank you\n\n"
+                f"Message: {user_input.strip()}"
+            )
+            message = HumanMessage(content=prompt)
             response = self.llm.invoke([message]).content
 
-            return str(response).lower() == "true"
+            return str(response).lower().strip() == "true"
         except Exception as e:
             self.logger.error(
                 f"Error in greeting check: {str(e)}\n"
                 f"User Input: {user_input}\n"
-                f"User ID: {user_id}\n"
                 f"Request ID: {request_id}\n"
                 f"Stacktrace:\n{traceback.format_exc()}"
             )

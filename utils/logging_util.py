@@ -1,44 +1,68 @@
 # logging_util.py
+import os
 
 from loguru import logger
 import sys
+import threading
+
+# Get the absolute path of the current file
+CURRENT_FILE_PATH = os.path.abspath(__file__)
+# Get the directory containing the current file
+BASE_DIR = os.path.dirname(CURRENT_FILE_PATH)
+
+# Thread-local storage for context
+_thread_local = threading.local()
+
+
+def set_context(key: str, value: str):
+    """Set a value in the logging context"""
+    if not hasattr(_thread_local, 'context'):
+        _thread_local.context = {}
+    _thread_local.context[key] = value
+
+
+def clear_context():
+    """Clear all context values"""
+    if hasattr(_thread_local, 'context'):
+        del _thread_local.context
+
+
+def get_context():
+    """Get the current context dictionary"""
+    return getattr(_thread_local, 'context', {})
+
+
+class ContextFilter:
+    def __call__(self, record):
+        context = get_context()
+        record["extra"].update(context)
+        return True
 
 
 def configure_logger(log_file="app.log", max_bytes=10 * 1024 * 1024, backup_count=5):
-    """
-    Configures the logger with custom format, colors, rolling, and max bytes.
+    """Configure logger with context support"""
+    logger.remove()
 
-    :param log_file: Path to the log file (default is "app.log").
-    :param max_bytes: Maximum size of the log file before it rolls over (default is 10 MB).
-    :param backup_count: Number of backup log files to keep (default is 5).
-    """
-    # Define a custom format string with explicit colorization
-    custom_format = (
-        "<green>{time:YYYY-MM-DD HH:mm:ss}</green> | "
-        "{level.icon} {level.name:<8} | "
-        "<blue>{thread.name}</blue> | "
-        "<blue>{process}</blue> | "
-        "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - "
-        "{message}"
+    # File output format
+    logger.add(
+        sink=log_file,
+        format=(
+            "<green>{time:YYYY-MM-DD HH:mm:ss}</green> | "
+            "{level.icon} {level.name:<8} | "
+            "<blue>{thread.name}</blue> | "
+            "<blue>{process}</blue> | "
+            "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> | "
+            "context:{extra} - "
+            "{message}"
+        ),
+        filter=ContextFilter(),
+        colorize=False,
+        enqueue=True,
+        rotation=max_bytes,
+        retention=backup_count
     )
 
-    # Define a custom colorizer function
-    def custom_colorizer(record):
-        level_color = {
-            "TRACE": "magenta",
-            "DEBUG": "blue",
-            "INFO": "green",
-            "SUCCESS": "bold_green",
-            "WARNING": "yellow",
-            "ERROR": "red",
-            "CRITICAL": "bold_red"
-        }
-        return level_color.get(record["level"].name, "")
-
-    logger.remove()
-    logger.add(sink=log_file, format=custom_format, colorize=False, enqueue=True, rotation=max_bytes,
-               retention=backup_count)
-
+    # Console output format
     logger.add(
         sink=sys.stdout,
         format=(
@@ -46,10 +70,12 @@ def configure_logger(log_file="app.log", max_bytes=10 * 1024 * 1024, backup_coun
             "<level>{level.icon} {level.name:<8}</level> | "
             "<blue>{thread.name}</blue> | "
             "<blue>{process}</blue> | "
-            "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - "
+            "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> | "
+            "context:{extra} - "
             "<level>{message}</level>"
         ),
-        colorize=True,  # Enable colorization for console output
+        filter=ContextFilter(),
+        colorize=True,
         enqueue=True,
     )
 
@@ -57,7 +83,7 @@ def configure_logger(log_file="app.log", max_bytes=10 * 1024 * 1024, backup_coun
 
 
 # Initialize the logger
-logger = configure_logger()
+logger = configure_logger(os.path.join(BASE_DIR, "../app.log"))
 logger.level("DEBUG")
 
 if __name__ == "__main__":
