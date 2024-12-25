@@ -6,6 +6,7 @@ from langchain_core.output_parsers import JsonOutputParser, StrOutputParser
 from langchain_core.prompts import PromptTemplate
 from langchain_core.vectorstores import VectorStore
 
+from config.common_settings import CommonConfig
 from handler.workflow import RequestState
 from utils.logging_util import logger
 
@@ -13,7 +14,7 @@ from utils.logging_util import logger
 
 
 class ProcessNodes():
-    def __init__(self, llm: BaseChatModel, vectorstore: VectorStore):
+    def __init__(self, llm: BaseChatModel, vectorstore: VectorStore, config: CommonConfig):
         self.logger = logger
         self.llm = llm
         self.vectorstore = vectorstore

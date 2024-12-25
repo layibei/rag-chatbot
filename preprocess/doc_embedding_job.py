@@ -17,10 +17,6 @@ from pathlib import Path
 from config.common_settings import CommonConfig
 from typing import Optional
 
-dotenv.load_dotenv(dotenv_path=os.getcwd() + "/.env")
-
-db_manager = DatabaseManager(os.environ["POSTGRES_URI"])
-
 
 class DocEmbeddingJob:
     def __init__(self):
@@ -29,9 +25,9 @@ class DocEmbeddingJob:
         self.embeddings = self.config.get_model("embedding")
         self.vector_store = self.config.get_vector_store()
 
-        index_log_repo = IndexLogRepository(db_manager)
+        index_log_repo = IndexLogRepository(self.config.get_db_manager())
         self.index_log_helper = IndexLogHelper(index_log_repo)
-        self.distributed_lock_helper = DistributedLockHelper(DistributedLockRepository(db_manager))
+        self.distributed_lock_helper = DistributedLockHelper(DistributedLockRepository(self.config.get_db_manager()))
         self.scheduler = BackgroundScheduler()
         self.setup_scheduler()
 

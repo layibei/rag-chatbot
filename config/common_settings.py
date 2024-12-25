@@ -11,6 +11,7 @@ from langchain_ollama import OllamaLLM, ChatOllama
 from langchain_postgres import PGVector
 from langchain_redis import RedisVectorStore, RedisConfig
 
+from config.database.database_manager import DatabaseManager
 from utils.logging_util import logger
 
 # Get the absolute path of the current file
@@ -162,6 +163,20 @@ class CommonConfig:
         )
 
         return vector_store
+    
+    def setup_proxy(self):
+        """Configure proxy settings from environment variables"""
+        if None != self.config['app']['proxy'] and self.config['app']['proxy']['enabled']:
+            os.environ["no_proxy"] = self.config['app']['proxy'].get("no_proxy")
+            os.environ["https_proxy"] = self.config['app']['proxy'].get("https_proxy")
+            os.environ["http_proxy"] = self.config['app']['proxy'].get("http_proxy")
+            self.logger.info("Proxy settings configured successfully")
+        else:
+            self.logger.info("Proxy settings not configured")
+
+    def get_db_manager(self):
+        return DatabaseManager(os.environ["POSTGRES_URI"])
+
 
     @staticmethod
     def load_yaml_file(file_path: str):
@@ -187,8 +202,7 @@ class ConfigError(Exception):
 
 
 if __name__ == "__main__":
-    os.environ["no_proxy"] = "localhost,127.0.0.1"
-    os.environ["https_proxy"] = "http://127.0.0.1:7890"
     config = CommonConfig()
+    config.setup_proxy()
     llm = config.get_model("chatllm")
     logger.info(llm.invoke("What is the capital of France?"))

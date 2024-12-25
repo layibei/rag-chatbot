@@ -1,3 +1,4 @@
+import os
 from typing import Any
 
 from fastapi import APIRouter, Header, HTTPException
@@ -25,7 +26,7 @@ class QueryResponse(BaseModel):
     user_input: str
 
 @router.post("/query", response_model=QueryResponse)
-async def process_query(
+def process_query(
     request: QueryRequest,
     x_user_id: str = Header(...),
     x_session_id: str = Header(...),
@@ -54,6 +55,10 @@ async def process_query(
         )
 
 if __name__ == "__main__":
+    base_config.setup_proxy()
+
+    from langchain.globals import set_debug
+    set_debug(True)
     response = query_handler.handle(user_input="What is the capital of France?", user_id="test", session_id="test",
                                   request_id=get_id())
     print(response)

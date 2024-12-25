@@ -5,7 +5,6 @@ from typing import Optional, List
 from datetime import datetime
 
 from config.common_settings import CommonConfig
-from config.database.database_manager import DatabaseManager
 from preprocess.index_log import SourceType
 from preprocess.doc_index_log_processor import DocEmbeddingsProcessor
 import os
@@ -19,12 +18,10 @@ from preprocess.index_log.repositories import IndexLogRepository
 
 router = APIRouter(tags=['pre-process'])
 
-dotenv.load_dotenv(dotenv_path=os.getcwd()+"/.env")
-db_manager = DatabaseManager(os.environ["POSTGRES_URI"])
 
 base_config = CommonConfig()
 doc_processor = DocEmbeddingsProcessor(base_config.get_model("embedding"), base_config.get_vector_store(),
-                                       IndexLogHelper(IndexLogRepository(db_manager)))
+                                       IndexLogHelper(IndexLogRepository(base_config.get_db_manager())))
 
 STAGING_PATH = "./data/staging"  # Configure this in your settings
 
@@ -54,7 +51,7 @@ class IndexLogResponse(BaseModel):
 
 
 @router.post("/docs", response_model=EmbeddingResponse)
-async def add_document(
+def add_document(
         request: EmbeddingRequest,
         user_id: str = Header(..., alias="user-id")
 ):
@@ -70,7 +67,7 @@ async def add_document(
 
 
 @router.get("/docs/{log_id}")
-async def get_document_by_id(log_id: str):
+def get_document_by_id(log_id: str):
     try:
         return doc_processor.get_document_by_id(log_id)
     except ValueError as e:
@@ -78,7 +75,7 @@ async def get_document_by_id(log_id: str):
 
 
 @router.get("/docs", response_model=List[IndexLogResponse])
-async def list_documents(
+def list_documents(
         page: int = Query(1, gt=0),
         page_size: int = Query(10, gt=0),
         search: Optional[str] = None
@@ -117,7 +114,7 @@ def sanitize_filename(filename: str) -> str:
 
 
 @router.post("/docs/upload", response_model=EmbeddingResponse)
-async def upload_document(
+def upload_document(
     file: UploadFile = File(...),
     source_type: SourceType = Query(...),
     user_id: str = Header(..., alias="user-id")

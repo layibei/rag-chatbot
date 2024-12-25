@@ -4,16 +4,17 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.constants import END
 from langgraph.graph.state import StateGraph
 
+from config.common_settings import CommonConfig
 from handler.workflow import RequestState
 from handler.workflow.nodes import ProcessNodes
 from utils.logging_util import logger
 
 
 class QueryProcessWorkflow():
-    def __init__(self, llm: BaseChatModel, vectorstore: VectorStore):
+    def __init__(self, llm: BaseChatModel, vectorstore: VectorStore, config: CommonConfig):
         self.logger = logger
         self.llm = llm
-        self.nodes = ProcessNodes(llm, vectorstore)
+        self.nodes = ProcessNodes(llm, vectorstore, config)
         self.graph = self.__setup_graph()
 
     def __setup_graph(self):
@@ -42,6 +43,7 @@ class QueryProcessWorkflow():
         return workflow.compile(checkpointer=memory)
 
     def invoke(self, user_input: str, user_id: str, session_id: str, request_id: str):
+        self.logger.info(f"Processing query: {user_input}")
         thread = {
             'configurable': {'thread_id': 1}
         }
@@ -55,4 +57,5 @@ class QueryProcessWorkflow():
             self.logger.info(s)
 
         state = self.graph.get_state(thread)
+        self.logger.info(f"response:{state.values}")
         return state.values.get("response")

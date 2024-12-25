@@ -4,6 +4,7 @@ import traceback
 
 from conversation import ConversationHistory, ChatSession
 from conversation.repositories import ConversationHistoryRepository
+from utils.id_util import get_id
 from utils.logging_util import logger
 
 
@@ -19,6 +20,7 @@ class ConversationHistoryHelper:
                          user_input: str,
                          response: str) -> ConversationHistory:
         conversation = ConversationHistory(
+            id=get_id(),
             user_id=user_id,
             session_id=session_id,
             request_id=request_id,

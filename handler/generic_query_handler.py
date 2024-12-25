@@ -1,22 +1,26 @@
-import os
 from typing import Dict, Any
 import traceback
 
-import dotenv
+from langchain_google_genai import ChatGoogleGenerativeAI
 from pydantic import BaseModel
 from langchain_core.messages import HumanMessage
 
-from config.database.database_manager import DatabaseManager
 from conversation.repositories import ConversationHistoryRepository
 from utils.logging_util import logger
 from conversation.conversation_history_helper import ConversationHistoryHelper
 from handler.workflow.query_process_workflow import QueryProcessWorkflow
+import traceback
+from typing import Dict, Any
 
-CURRENT_FILE_PATH = os.path.abspath(__file__)
-BASE_DIR = os.path.dirname(CURRENT_FILE_PATH)
+from langchain_core.messages import HumanMessage
+from langchain_google_genai import ChatGoogleGenerativeAI
+from pydantic import BaseModel
 
-dotenv.load_dotenv(dotenv_path=BASE_DIR + "/../.env")
-db_manager = DatabaseManager(os.environ["POSTGRES_URI"])
+from conversation.conversation_history_helper import ConversationHistoryHelper
+from conversation.repositories import ConversationHistoryRepository
+from handler.workflow.query_process_workflow import QueryProcessWorkflow
+from utils.logging_util import logger
+
 
 class QueryResponse(BaseModel):
     data: Any
@@ -38,10 +42,11 @@ class QueryHandler:
         self.llm = llm
         self.vector_store = vector_store
         self.logger = logger
-        self.conversation_helper = ConversationHistoryHelper(ConversationHistoryRepository(db_manager))
+        self.conversation_helper = ConversationHistoryHelper(ConversationHistoryRepository(self.config.get_db_manager()))
 
     def handle(self, user_input: str, user_id: str, session_id: str, request_id: str) -> Dict[str, Any]:
         try:
+            self.logger.info(f"Handling user query, user_id:{user_id}, session_id:{session_id}, request_id:{request_id}, user_input:{user_id}")
             # Process query
             if self._is_greeting(user_input, user_id, request_id):
                 response = self._handle_greeting()
@@ -78,12 +83,15 @@ class QueryHandler:
                 "error": str(e),
                 "status": "error",
                 "user_input": user_input,
+                "session_id": session_id,
+                "user_id": user_id,
                 "request_id": request_id
             }
 
     def _process_query(self, user_input: str, user_id: str, session_id: str, request_id: str) -> str:
         try:
-            workflow = QueryProcessWorkflow(self.llm, self.vector_store)
+            self.logger.info(f"Processing query, user_id:{user_id}, session_id:{session_id}, request_id:{request_id}, user_input:{user_id}")
+            workflow = QueryProcessWorkflow(self.llm, self.vector_store, self.config)
             return workflow.invoke(user_input, user_id=user_id, request_id=request_id, session_id=session_id)
         except Exception as e:
             self.logger.error(
@@ -98,6 +106,7 @@ class QueryHandler:
 
     def _is_greeting(self, user_input: str, user_id: str, request_id: str) -> bool:
         """Check if input is a greeting using a simple, focused prompt."""
+        self.logger.info(f"Checking if input is a greeting, user_id:{user_id}, request_id:{request_id}, user_input:{user_id}")
         # Ensure inputs are valid strings
         if not all(isinstance(x, str) for x in [user_input, user_id, request_id]):
             raise ValueError("All inputs must be strings")
@@ -119,4 +128,12 @@ class QueryHandler:
             raise  # Re-raise to be handled by the main error handler
 
     def _handle_greeting(self) -> str:
+        self.logger.info("Handling greeting")
         return "Hello! How can I help you today?"
+
+if __name__ == "__main__":
+    from config.common_settings import CommonConfig
+    config = CommonConfig()
+    config.setup_proxy()
+    handler = QueryHandler(config.get_model("chatllm"), config.get_vector_store(), config)
+    handler.handle("Hello!", "user_id", "session_id", "request_id")

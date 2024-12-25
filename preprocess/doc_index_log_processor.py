@@ -1,18 +1,13 @@
 import hashlib
-import os
 from datetime import datetime, UTC
 from typing import Optional
 
-import dotenv
 from langchain_postgres import PGVector
 from langchain_redis import RedisVectorStore
 
 from config.common_settings import CommonConfig
-from config.database.database_manager import DatabaseManager
 from preprocess.index_log import Status
 from utils.logging_util import logger
-
-dotenv.load_dotenv(dotenv_path=os.getcwd()+"/.env")
 
 
 class DocEmbeddingsProcessor:
