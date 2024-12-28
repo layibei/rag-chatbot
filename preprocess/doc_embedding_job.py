@@ -22,14 +22,31 @@ class DocEmbeddingJob:
     def __init__(self):
         self.logger = logger
         self.config = CommonConfig()
-        self.embeddings = self.config.get_model("embedding")
-        self.vector_store = self.config.get_vector_store()
-
-        index_log_repo = IndexLogRepository(self.config.get_db_manager())
-        self.index_log_helper = IndexLogHelper(index_log_repo)
-        self.distributed_lock_helper = DistributedLockHelper(DistributedLockRepository(self.config.get_db_manager()))
-        self.scheduler = BackgroundScheduler()
-        self.setup_scheduler()
+        self.embeddings = None
+        self.vector_store = None
+        self.index_log_helper = None
+        self.distributed_lock_helper = None
+        self.scheduler = None
+        
+    async def initialize(self):
+        """Async initialization of components"""
+        try:
+            self.embeddings = self.config.get_model("embedding")
+            self.vector_store = self.config.get_vector_store()
+            
+            index_log_repo = IndexLogRepository(self.config.get_db_manager())
+            self.index_log_helper = IndexLogHelper(index_log_repo)
+            self.distributed_lock_helper = DistributedLockHelper(
+                DistributedLockRepository(self.config.get_db_manager())
+            )
+            
+            self.scheduler = BackgroundScheduler()
+            self.setup_scheduler()
+            self.logger.info("DocEmbeddingJob initialized successfully")
+            return True
+        except Exception as e:
+            self.logger.error(f"Failed to initialize DocEmbeddingJob: {str(e)}")
+            return False
 
     def setup_scheduler(self):
         self.scheduler.add_job(

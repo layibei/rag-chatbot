@@ -20,7 +20,7 @@ app:
       type: "gemini"
       model: "gemini-2.0-flash-exp"
     rerank:
-      type: "flagreranker"
+      type: "bge"
       model: "BAAI/bge-reranker-large"
   embedding:
     input_path: "./data/input"
@@ -29,11 +29,11 @@ app:
     trunk_size: 2048
     overlap: 256
   query_agent:
-    rerank_enabled: yes
-    parent_search_enabled: yes
-    web_search_enabled: yes
+    rerank_enabled: true
+    parent_search_enabled: true
+    web_search_enabled: true
   proxy:
-    enabled: yes
+    enabled: true
     no_proxy: "localhost,127.0.0.1"
     http_proxy: "http://127.0.0.1:7890"
     https_proxy: "http://127.0.0.1:7890"

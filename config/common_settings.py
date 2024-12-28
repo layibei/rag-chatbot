@@ -1,4 +1,5 @@
 import os
+from typing import Any
 
 import dotenv
 import yaml
@@ -9,7 +10,7 @@ from langchain_google_genai import GoogleGenerativeAI, ChatGoogleGenerativeAI
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_ollama import OllamaLLM, ChatOllama
 from langchain_postgres import PGVector
-from langchain_redis import RedisVectorStore, RedisConfig
+from FlagEmbedding import FlagReranker
 
 from config.database.database_manager import DatabaseManager
 from utils.logging_util import logger
@@ -80,26 +81,31 @@ class CommonConfig:
         raise RuntimeError("Not found the embedding model type");
 
     def _get_chatllm_model(self, config):
-        self.check_config(self.config, ["app", "models", "chatllm", "type"],
-                          "ChatLLM model is not found")
-        self.logger.info(f"ChatLLM model: {self.config['app']['models']['chatllm']}")
+        """Get chat LLM model with proxy configuration"""
+        try:
+            self.check_config(self.config, ["app", "models", "chatllm", "type"],
+                             "ChatLLM model is not found")
+            model_config = self.config["app"]["models"]["chatllm"]
+            model_type = model_config.get("type")
+            
 
-        if self.config["app"]["models"]["chatllm"].get("type") == "sparkllm":
-            return ChatSparkLLM()
-
-        if self.config["app"]["models"]["chatllm"].get("type") == "ollama" and self.config["app"]["models"][
-            "chatllm"].get("model") is not None:
-            return ChatOllama(model=self.config["app"]["models"]["chatllm"].get("model"), temperature=0.85, )
-
-        if self.config["app"]["models"]["llm"].get("type") == "gemini" and self.config["app"]["models"]["llm"].get(
-                "model") is not None:
-            return ChatGoogleGenerativeAI(model=self.config["app"]["models"]["llm"].get("model"), temperature=0.85)
-
-        if self.config["app"]["models"]["llm"].get("type") == "gemini" and self.config["app"]["models"]["llm"].get(
-                "model") is not None:
-            return ChatAnthropic(model=self.config["app"]["models"]["llm"].get("model"), temperature=0.85)
-
-        raise RuntimeError("Not found the chatllm model type");
+            if model_type == "gemini":
+                return ChatGoogleGenerativeAI(
+                    model=model_config.get("model"),
+                    temperature=0.85,
+                )
+            elif model_type == "anthropic":
+                return ChatAnthropic(
+                    model=model_config.get("model"),
+                    temperature=0.85,
+                )
+            # Add other model types as needed...
+            
+            raise RuntimeError(f"Unsupported chatllm model type: {model_type}")
+            
+        except Exception as e:
+            self.logger.error(f"Error initializing chat LLM: {str(e)}")
+            raise
 
     def _get_rerank_model(self, config):
         self.check_config(self.config, ["app", "models", "rerank", "type"], "rerank model is not found")
@@ -107,8 +113,14 @@ class CommonConfig:
         if self.config["app"]["models"]["rerank"].get("type") == "huggingface" and \
                 self.config["app"]["models"]["rerank"]["model"] is not None:
             return HuggingFaceEmbeddings(model_name=self.config["app"]["models"]["rerank"].get("model"))
+        if self.config["app"]["models"]["rerank"].get("type") == "bge" and \
+                self.config["app"]["models"]["rerank"]["model"] is not None:
+            return FlagReranker(self.config["app"]["models"]["rerank"].get("model"), use_fp16=True)
+
 
     def get_model(self, type):
+        """Get model by type"""
+        self.logger.info(f"Get model by type: {type}")
         if not isinstance(type, str):
             raise TypeError("Model type must be a string")
 
@@ -126,6 +138,7 @@ class CommonConfig:
             raise ValueError("Invalid model type")
 
     def get_embedding_config(self):
+        self.logger.info(f"Embedding config: {self.config['app']['embedding']}")
         self.check_config(self.config, ["app", "embedding"], "app embedding is not found.")
         self.check_config(self.config, ["app", "embedding", "input_path"], "input path in app embedding is not found.")
 
@@ -136,15 +149,49 @@ class CommonConfig:
             "trunk_size": self.config["app"]["embedding"].get("trunk_size", 1024)
         }
 
-    def get_query_config(self):
-        self.check_config(self.config, ["app", "query_agent"], "query agent config is not found")
+    def get_query_config(self, key: str = None, default_value: Any = None) -> Any:
+        """
+        Get query agent configuration with nested key support.
+        Example: get_query_config("thresholds.hallucination.high_risk", 0.6)
+        """
+        self.logger.info(f"Query agent config: {self.config['app']['query_agent']}")
+        self.check_config(self.config, ["app", "query_agent"], "Query agent config is not found")
         query_agent_config = self.config["app"]["query_agent"]
 
-        return {
-            "rerank_enabled": query_agent_config.get("rerank_enabled", False),
-            "parent_search_enabled": query_agent_config.get("parent_search_enabled", False),
-            "web_search_enabled": query_agent_config.get("web_search_enabled", False),
-        }
+        if key is None:
+            return {
+                "rerank_enabled": query_agent_config.get("rerank_enabled", False),
+                "parent_search_enabled": query_agent_config.get("parent_search_enabled", False),
+                "web_search_enabled": query_agent_config.get("web_search_enabled", False),
+                "thresholds": query_agent_config.get("thresholds", {
+                    "hallucination": {
+                        "high_risk": 0.6,
+                        "medium_risk": 0.8
+                    },
+                    "relevance_score": 0.7,
+                    "similarity_score": 0.75
+                }),
+                "limits": query_agent_config.get("limits", {
+                    "max_rewrite_attempts": 2,
+                    "max_documents": 5,
+                    "max_web_results": 3
+                }),
+                "metrics": query_agent_config.get("metrics", {
+                    "enabled": True,
+                    "store_in_db": True,
+                    "log_level": "INFO"
+                })
+            }
+
+        # Handle nested key access
+        keys = key.split(".")
+        value = query_agent_config
+        try:
+            for k in keys:
+                value = value[k]
+            return value
+        except (KeyError, TypeError):
+            return default_value
 
     def get_vector_store(self):
         self.logger.info("Get vector store.")
@@ -165,14 +212,52 @@ class CommonConfig:
         return vector_store
     
     def setup_proxy(self):
-        """Configure proxy settings from environment variables"""
-        if None != self.config['app']['proxy'] and self.config['app']['proxy']['enabled']:
-            os.environ["no_proxy"] = self.config['app']['proxy'].get("no_proxy")
-            os.environ["https_proxy"] = self.config['app']['proxy'].get("https_proxy")
-            os.environ["http_proxy"] = self.config['app']['proxy'].get("http_proxy")
-            self.logger.info("Proxy settings configured successfully")
-        else:
-            self.logger.info("Proxy settings not configured")
+        """Setup proxy configuration"""
+        try:
+            if self.config["app"]["proxy"].get("enabled", False):
+                # Set proxy environment variables
+                proxy_config = {
+                    "http_proxy": self.config["app"]["proxy"].get("http_proxy"),
+                    "https_proxy": self.config["app"]["proxy"].get("https_proxy"),
+                    "no_proxy": self.config["app"]["proxy"].get("no_proxy")
+                }
+                
+                # Set environment variables
+                for key, value in proxy_config.items():
+                    if value:
+                        os.environ[key] = value
+                        os.environ[key.upper()] = value  # Some libraries use uppercase
+                
+                self.logger.info("Proxy configuration set successfully")
+                return True
+            return False
+        except Exception as e:
+            self.logger.error(f"Failed to setup proxy: {str(e)}")
+            raise ConfigError(f"Proxy setup failed: {str(e)}")
+
+    async def asetup_proxy(self):
+        """Setup proxy configuration"""
+        try:
+            if self.config["app"]["proxy"].get("enabled", False):
+                # Set proxy environment variables
+                proxy_config = {
+                    "http_proxy": self.config["app"]["proxy"].get("http_proxy"),
+                    "https_proxy": self.config["app"]["proxy"].get("https_proxy"),
+                    "no_proxy": self.config["app"]["proxy"].get("no_proxy")
+                }
+
+                # Set environment variables
+                for key, value in proxy_config.items():
+                    if value:
+                        os.environ[key] = value
+                        os.environ[key.upper()] = value  # Some libraries use uppercase
+
+                self.logger.info("Proxy configuration set successfully")
+                return True
+            return False
+        except Exception as e:
+            self.logger.error(f"Failed to setup proxy: {str(e)}")
+            raise ConfigError(f"Proxy setup failed: {str(e)}")
 
     def get_db_manager(self):
         return DatabaseManager(os.environ["POSTGRES_URI"])

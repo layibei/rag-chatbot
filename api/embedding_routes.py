@@ -18,12 +18,8 @@ from preprocess.index_log.repositories import IndexLogRepository
 
 router = APIRouter(tags=['pre-process'])
 
-
 base_config = CommonConfig()
-doc_processor = DocEmbeddingsProcessor(base_config.get_model("embedding"), base_config.get_vector_store(),
-                                       IndexLogHelper(IndexLogRepository(base_config.get_db_manager())))
-
-STAGING_PATH = "./data/staging"  # Configure this in your settings
+STAGING_PATH = base_config.get_query_config("staging_path")
 
 
 class EmbeddingRequest(BaseModel):
@@ -56,6 +52,8 @@ def add_document(
         user_id: str = Header(..., alias="user-id")
 ):
     try:
+        doc_processor = DocEmbeddingsProcessor(base_config.get_model("embedding"), base_config.get_vector_store(),
+                                               IndexLogHelper(IndexLogRepository(base_config.get_db_manager())))
         result = doc_processor.add_index_log(
             source=request.source,
             source_type=request.source_type,
@@ -69,6 +67,8 @@ def add_document(
 @router.get("/docs/{log_id}")
 def get_document_by_id(log_id: str):
     try:
+        doc_processor = DocEmbeddingsProcessor(base_config.get_model("embedding"), base_config.get_vector_store(),
+                                               IndexLogHelper(IndexLogRepository(base_config.get_db_manager())))
         return doc_processor.get_document_by_id(log_id)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -81,6 +81,8 @@ def list_documents(
         search: Optional[str] = None
 ):
     try:
+        doc_processor = DocEmbeddingsProcessor(base_config.get_model("embedding"), base_config.get_vector_store(),
+                                               IndexLogHelper(IndexLogRepository(base_config.get_db_manager())))
         logs = doc_processor.index_log_helper.list_logs(
             page=page,
             page_size=page_size,
@@ -120,6 +122,8 @@ def upload_document(
     user_id: str = Header(..., alias="user-id")
 ):
     try:
+        doc_processor = DocEmbeddingsProcessor(base_config.get_model("embedding"), base_config.get_vector_store(),
+                                               IndexLogHelper(IndexLogRepository(base_config.get_db_manager())))
         # 1. Validate file extension matches source_type
         file_extension = Path(file.filename).suffix.lower()
         if not _is_valid_extension(file_extension[1:], source_type):  # Remove the dot
@@ -137,7 +141,7 @@ def upload_document(
         
         # 4. Save file to staging
         with open(staging_file_path, "wb") as buffer:
-            content = await file.read()
+            content = file.read()
             buffer.write(content)
         
         # 5. Process the document

@@ -1,6 +1,7 @@
-from typing import TypedDict, Annotated, Any, Optional
-from datetime import datetime
+from typing import TypedDict, Annotated, Any
+
 from langchain_core.documents import Document
+from langgraph.graph.message import add_messages
 
 
 class RequestState(TypedDict):
@@ -8,14 +9,17 @@ class RequestState(TypedDict):
     session_id: str
     request_id: str
     user_input: str
-    response: Any
-    source: str
-    documents: list[Document]
-    original_query: str
-    transform_query_count: int
-    web_search_count: int
-    is_transformed_query: bool
-    final_response: Any
-    messages: list[dict]
-    token_usage: dict
+    rewritten_query: str
 
+    messages: Annotated[list[str], add_messages]
+    response: Any
+    documents: list[Document]
+    web_results: list[Document]
+    hallucination_risk: str
+    confidence_score: str
+    output_format: str
+
+    # Attempt counters
+    rewrite_attempts: int = 0
+    web_search_attempts: int = 0
+    enhance_attempts: int = 0
