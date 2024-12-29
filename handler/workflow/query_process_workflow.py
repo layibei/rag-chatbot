@@ -293,8 +293,15 @@ class QueryProcessWorkflow:
         rewrite_attempts = state.get("rewrite_attempts", 0)
         rewritten_query = state.get("rewritten_query", "")
 
-        if not documents and not web_results and rewrite_attempts < self.max_retries and not rewritten_query:
-            self.logger.debug(f"No results found, attempting query rewrite,rewrite_attempts:{rewrite_attempts}")
+        # get query_rewrite_enable from query_config
+        query_rewrite_enabled = self.config.get_query_config("search.query_rewrite_enabled", False)
+        if not query_rewrite_enabled:
+            self.logger.debug(f"Query rewrite is disabled, skipping query rewrite,rewrite_attempts:{rewrite_attempts}")
+            return "generate"
+
+        if not documents and not web_results and not rewrite_attempts < self.max_retries and not rewritten_query:
+            self.logger.debug(f"No documents are found in retrieval results and web search results, attempting query "
+                              f"rewrite,rewrite_attempts:{rewrite_attempts}")
             return "rewrite"
 
         self.logger.info("Proceeding to generate response")
@@ -349,12 +356,12 @@ class QueryProcessWorkflow:
                 ]"""
 
             result = self.llm.invoke([HumanMessage(content=prompt)])
-            
+
             # Clean and parse response
             content = result.content.strip()
             # Remove any markdown formatting if present
             content = content.replace('```json', '').replace('```', '').strip()
-            
+
             try:
                 questions = json.loads(content)
                 if isinstance(questions, list):

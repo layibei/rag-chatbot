@@ -17,8 +17,10 @@ app:
 #      type: "sparkllm"
 #      type: "qwen"
 #      model: "qwen2.5"
-      type: "gemini"
-      model: "gemini-2.0-flash-exp"
+#      type: "gemini"
+#      model: "gemini-2.0-flash-exp"
+      type: "ollama"
+      model: "llama3.1"
     rerank:
       type: "bge"
       model: "BAAI/bge-reranker-large"
@@ -35,6 +37,7 @@ app:
       max_retries: 1
       top_k: 10
       relevance_threshold: 0.7
+      query_rewrite_enabled: true
     hallucination:
       high_risk: 0.6
       medium_risk: 0.8
@@ -49,3 +52,8 @@ app:
     no_proxy: "localhost,127.0.0.1"
     http_proxy: "http://127.0.0.1:7890"
     https_proxy: "http://127.0.0.1:7890"
+  logging.level:
+    root: "DEBUG"  # default for all packages including project and libraries
+    utils.lock: "WARNING"
+    langchain: "WARNING"
+    httpx: "WARNING"

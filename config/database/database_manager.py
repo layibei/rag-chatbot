@@ -4,7 +4,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.ext.declarative import declarative_base
 
-from utils.logging_util import logger
+from utils.logger_init import logger
 
 Base = declarative_base()
 

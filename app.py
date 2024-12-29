@@ -54,20 +54,16 @@ class LoggingContextMiddleware(BaseHTTPMiddleware):
             # For non-query endpoints, use defaults if not provided
             session_id = session_id or 'unknown'
             request_id = request_id or 'unknown'
-        
-        # Set context
-        set_context('user_id', user_id)
-        set_context('session_id', session_id)
-        set_context('request_id', request_id)
-        
+
+        # Set context using keyword arguments
+        set_context(
+            user_id=user_id,
+            session_id=session_id,
+            request_id=request_id
+        )
+
         try:
-            # Add generated IDs to response headers
             response = await call_next(request)
-            
-            if request.url.path.startswith('/query'):
-                response.headers['X-Session-Id'] = session_id
-                response.headers['X-Request-Id'] = request_id
-            
             return response
         finally:
             clear_context()

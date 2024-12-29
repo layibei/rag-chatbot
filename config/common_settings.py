@@ -1,5 +1,5 @@
 import os
-from typing import Any
+from typing import Any, Dict, Union
 from functools import lru_cache
 
 import dotenv
@@ -14,7 +14,7 @@ from langchain_postgres import PGVector
 from FlagEmbedding import FlagReranker
 
 from config.database.database_manager import DatabaseManager
-from utils.logging_util import logger
+from utils.logger_init import logger
 
 # Get the absolute path of the current file
 CURRENT_FILE_PATH = os.path.abspath(__file__)
@@ -97,6 +97,11 @@ class CommonConfig:
                 )
             elif model_type == "anthropic":
                 return ChatAnthropic(
+                    model=model_config.get("model"),
+                    temperature=0.85,
+                )
+            elif model_type == "ollama":
+                return ChatOllama(
                     model=model_config.get("model"),
                     temperature=0.85,
                 )
@@ -280,6 +285,40 @@ class CommonConfig:
             logger.error(f"An unexpected error occurred: {e}")
             return None
 
+    def get_logging_config(self, package_name: str = None) -> Union[Dict[str, str], str]:
+        """
+        Get logging configuration for packages with hierarchical path support.
+        Args:
+            package_name: Optional package name to get specific log level
+        Returns:
+            Dict of package log levels or specific level string
+        """
+        self.logger.debug(f"Getting logging config for package: {package_name}")
+        
+        try:
+            # Get logging config with default fallback
+            logging_levels = self.config.get("app", {}).get("logging.level", {})
+            root_level = logging_levels.get("root", "INFO")
+
+            if package_name:
+                # Find the most specific matching package path
+                matching_level = root_level
+                matching_length = 0
+                
+                for pkg_path, level in logging_levels.items():
+                    if pkg_path != "root" and package_name.startswith(pkg_path):
+                        path_length = len(pkg_path.split('.'))
+                        if path_length > matching_length:
+                            matching_level = level
+                            matching_length = path_length
+                
+                return matching_level
+            
+            return logging_levels
+        except Exception as e:
+            self.logger.error(f"Error getting logging config: {str(e)}")
+            return "INFO" if package_name else {"root": "INFO"}
+
 
 class ConfigError(Exception):
     """Custom exception for configuration errors."""
@@ -294,3 +333,5 @@ if __name__ == "__main__":
 
     web_search_enabled = config.get_query_config("search.web_search_enabled")
     print(web_search_enabled)
+
+    print(config.get_logging_config("utils.lock"))
