@@ -67,7 +67,7 @@ def configure_logger(log_file="app.log", max_bytes=10 * 1024 * 1024, backup_coun
         "<green>{time:YYYY-MM-DD HH:mm:ss}</green> | "
         "{level.icon} {level.name:<8} | "
         "<blue>{thread.name}</blue> | "
-        "<blue>{process.id}</blue> | "
+        # "<blue>{process.id}</blue> | "
         "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> | "
         "{extra} | "
         "{message}"

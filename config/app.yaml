@@ -17,10 +17,10 @@ app:
 #      type: "sparkllm"
 #      type: "qwen"
 #      model: "qwen2.5"
-#      type: "gemini"
-#      model: "gemini-2.0-flash-exp"
-      type: "ollama"
-      model: "llama3.1"
+      type: "gemini"
+      model: "gemini-2.0-flash-exp"
+#      type: "ollama"
+#      model: "llama3.1"
     rerank:
       type: "bge"
       model: "BAAI/bge-reranker-large"
@@ -34,11 +34,11 @@ app:
     search:
       rerank_enabled: true
       web_search_enabled: true
-      max_retries: 1
-      top_k: 10
-      relevance_threshold: 0.7
+      max_retries: 1 # max retry for query rewrite
+      top_k: 10 # for retrieval top n documents, equal to max_documents
+      relevance_threshold: 0.7 # for filter out low relevance documents
       query_rewrite_enabled: true
-    hallucination:
+    hallucination: # for fact checking, the lower of the score, the higher risk of hallucination
       high_risk: 0.6
       medium_risk: 0.8
     output:

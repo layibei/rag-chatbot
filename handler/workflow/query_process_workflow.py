@@ -218,11 +218,13 @@ class QueryProcessWorkflow:
             2. Use only provided source information
             3. Include specific facts and figures
             4. Maintain response accuracy
+            5. The response should be accurate and relevant to the query
+            6. Do not include any additional information or explanation about the generation
             
             Format:
             - Start with direct answer
             - Use bullet points for multiple facts
-            - Include code blocks if technical
+            - Include code blocks if any
             - Keep response under 200 words
             
             Response:"""
@@ -326,7 +328,6 @@ class QueryProcessWorkflow:
         """Generate contextually relevant follow-up questions"""
         self.logger.info("Generating suggested questions")
         try:
-            # check if enabled
             if not self.config.get_query_config("output.generate_suggested_documents", False):
                 self.logger.info("Suggested questions generation is disabled")
                 return state
@@ -335,46 +336,73 @@ class QueryProcessWorkflow:
             response = state.get("response", "")
             documents = state.get("documents", state.get("web_results", []))
 
-            prompt = f"""Generate 3 follow-up questions based on the user's query.
+            prompt = """You are an AI assistant specialized in generating insightful follow-up questions.
 
-                User Query: "{query}"
-                Current Response: "{response[:200]}..."
-                Context: {self._format_documents(documents)}
+            Context:
+            Original Query: "{query}"
+            Topic Summary: "{summary}"
 
-                Requirements:
-                - Each question should be under 100 characters
-                - Questions must be specific
-                - You could focus on deeper aspects of the original query
-                - No general or basic questions
-                - No explanations or answers
+            Task: Generate 3 follow-up questions that help users explore this topic more deeply.
 
-                Return ONLY an array of 3 questions:
-                [
-                    "How does X specific implementation work?",
-                    "What are the performance implications of Y?",
-                    "Which technical constraints affect Z?"
-                ]"""
+            Requirements for each question:
+            1. Must directly relate to the original query's topic
+            2. Should explore different aspects:
+               - Technical details or implementation
+               - Practical applications or use cases
+               - Best practices or common pitfalls
+            3. Must be specific and actionable
+            4. Must be under 100 characters
+            5. Must end with a question mark
+            6. Avoid repeating information from the original query
+            7. Focus on what's most valuable to understand next
 
-            result = self.llm.invoke([HumanMessage(content=prompt)])
+            IMPORTANT: Return ONLY raw JSON without any markdown formatting or code blocks.
+            DO NOT include ```json or ``` tags.
 
-            # Clean and parse response
-            content = result.content.strip()
-            # Remove any markdown formatting if present
-            content = content.replace('```json', '').replace('```', '').strip()
+            Return in this exact format:
+            {{
+                "questions": [
+                    "First specific follow-up question?",
+                    "Second specific follow-up question?",
+                    "Third specific follow-up question?"
+                ]
+            }}
 
+            Examples of good questions:
+            - "What are the security implications of implementing this approach?"
+            - "How does this compare to [related technology] in terms of performance?"
+            - "What are the common pitfalls when scaling this solution?"
+
+            Bad examples:
+            - "Can you tell me more?" (too vague)
+            - "What is your opinion?" (not specific)
+            - "Why is this important?" (too generic)
+
+            Your response (raw JSON only):"""
+
+            result = self.llm.invoke([HumanMessage(content=prompt.format(
+                query=query,
+                summary=response[:200]
+            ))]).content.strip()
+            
+            # Remove any markdown code block syntax if present
+            result = result.replace('```json', '').replace('```', '').strip()
+            
             try:
-                questions = json.loads(content)
-                if isinstance(questions, list):
-                    state["suggested_questions"] = questions[:3]
+                parsed = json.loads(result)
+                questions = parsed.get("questions", [])
+                
+                if len(questions) == 3 and all(isinstance(q, str) and q.strip().endswith("?") for q in questions):
+                    state["suggested_questions"] = questions
                 else:
-                    self.logger.warning("Invalid response format: not a list")
+                    self.logger.warning("Invalid questions format or count")
                     state["suggested_questions"] = []
-                return state
-
+                    
             except json.JSONDecodeError as e:
-                self.logger.error(f"JSON parsing error: {str(e)}")
+                self.logger.error(f"JSON parsing error: {str(e)}\nResponse was: {result}")
                 state["suggested_questions"] = []
-                return state
+
+            return state
 
         except Exception as e:
             self.logger.error(f"Error generating suggested questions: {str(e)}")
