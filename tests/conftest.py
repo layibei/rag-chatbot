@@ -6,7 +6,6 @@ import dotenv
 from config.database.database_manager import DatabaseManager
 from preprocess.index_log import Base as IndexLogBase
 from conversation import Base as ConversationBase
-from audit import Base as AuditBase
 
 @pytest.fixture(scope="session", autouse=True)
 def load_env():
@@ -23,6 +22,5 @@ def db_manager():
     # Create all tables
     IndexLogBase.metadata.create_all(manager.engine)
     ConversationBase.metadata.create_all(manager.engine)
-    AuditBase.metadata.create_all(manager.engine)
-    
+
     return manager 

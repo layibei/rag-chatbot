@@ -2,12 +2,14 @@ from typing import Dict, Any, List
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage
 from langchain_core.documents import Document
+
+from config.common_settings import CommonConfig
 from utils.logging_util import logger
 
 class HallucinationDetector:
     """Detects potential hallucinations in LLM responses"""
     
-    def __init__(self, llm: BaseChatModel):
+    def __init__(self, llm: BaseChatModel, config: CommonConfig):
         self.llm = llm
         self.logger = logger
         self._last_score = 0.0  # Track last score for internal use
@@ -114,8 +116,9 @@ class HallucinationDetector:
 
     def _get_risk_level(self, score: float) -> str:
         """Convert score to risk level with balanced thresholds"""
-        if score >= 0.80:
-            return "LOW"
-        elif score >= 0.60:
+        if score <= self.config.get_query_config("hallucination.high_risk", 0.6):
+            return "HIGH"
+        elif score < self.config.get_query_config("hallucination.medium_risk", 0.8):
             return "MEDIUM"
-        return "HIGH" 
+        else:
+            return "LOW"

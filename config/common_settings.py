@@ -1,5 +1,6 @@
 import os
 from typing import Any
+from functools import lru_cache
 
 import dotenv
 import yaml
@@ -149,38 +150,37 @@ class CommonConfig:
             "trunk_size": self.config["app"]["embedding"].get("trunk_size", 1024)
         }
 
+    @lru_cache(maxsize=128)
     def get_query_config(self, key: str = None, default_value: Any = None) -> Any:
         """
-        Get query agent configuration with nested key support.
-        Example: get_query_config("thresholds.hallucination.high_risk", 0.6)
+        Get query agent configuration with nested key support and caching.
+        Example: get_query_config("search.rerank_enabled", True)
         """
-        self.logger.info(f"Query agent config: {self.config['app']['query_agent']}")
+        self.logger.info(f"Getting query config for key: {key}")
         self.check_config(self.config, ["app", "query_agent"], "Query agent config is not found")
         query_agent_config = self.config["app"]["query_agent"]
 
         if key is None:
             return {
-                "rerank_enabled": query_agent_config.get("rerank_enabled", False),
-                "parent_search_enabled": query_agent_config.get("parent_search_enabled", False),
-                "web_search_enabled": query_agent_config.get("web_search_enabled", False),
-                "thresholds": query_agent_config.get("thresholds", {
-                    "hallucination": {
-                        "high_risk": 0.6,
-                        "medium_risk": 0.8
-                    },
-                    "relevance_score": 0.7,
-                    "similarity_score": 0.75
-                }),
-                "limits": query_agent_config.get("limits", {
-                    "max_rewrite_attempts": 2,
-                    "max_documents": 5,
-                    "max_web_results": 3
-                }),
-                "metrics": query_agent_config.get("metrics", {
-                    "enabled": True,
-                    "store_in_db": True,
-                    "log_level": "INFO"
-                })
+                "search": {
+                    "rerank_enabled": query_agent_config.get("search", {}).get("rerank_enabled", True),
+                    "web_search_enabled": query_agent_config.get("search", {}).get("web_search_enabled", False),
+                    "max_retries": query_agent_config.get("search", {}).get("max_retries", 1),
+                    "top_k": query_agent_config.get("search", {}).get("top_k", 10),
+                    "relevance_threshold": query_agent_config.get("search", {}).get("relevance_threshold", 0.7)
+                },
+                "hallucination": {
+                    "high_risk": query_agent_config.get("hallucination", {}).get("high_risk", 0.6),
+                    "medium_risk": query_agent_config.get("hallucination", {}).get("medium_risk", 0.8)
+                },
+                "output": {
+                    "generate_suggested_documents": query_agent_config.get("output", {}).get("generate_suggested_documents", True)
+                },
+                "metrics": {
+                    "enabled": query_agent_config.get("metrics", {}).get("enabled", True),
+                    "store_in_db": query_agent_config.get("metrics", {}).get("store_in_db", True),
+                    "log_level": query_agent_config.get("metrics", {}).get("log_level", "INFO")
+                }
             }
 
         # Handle nested key access
@@ -288,6 +288,9 @@ class ConfigError(Exception):
 
 if __name__ == "__main__":
     config = CommonConfig()
-    config.setup_proxy()
-    llm = config.get_model("chatllm")
-    logger.info(llm.invoke("What is the capital of France?"))
+    #config.setup_proxy()
+    #llm = config.get_model("chatllm")
+    #logger.info(llm.invoke("What is the capital of France?"))
+
+    web_search_enabled = config.get_query_config("search.web_search_enabled")
+    print(web_search_enabled)

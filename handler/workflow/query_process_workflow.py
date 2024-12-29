@@ -33,14 +33,14 @@ class Citation:
 @dataclass
 class QueryResponse:
     answer: str
-    citations: List[Citation]
+    citations: List[str]
     suggested_questions: List[str]
     metadata: Dict[str, Any]
 
     def to_dict(self) -> Dict[str, Any]:
         return {
             "answer": self.answer,
-            "citations": [citation.to_dict() for citation in self.citations],
+            "citations": self.citations,
             "suggested_questions": self.suggested_questions,
             "metadata": self.metadata
         }
@@ -57,10 +57,10 @@ class QueryProcessWorkflow:
         self.doc_retriever = DocumentRetriever(llm, vectorstore, config)
         self.response_formatter = ResponseFormatter(llm, config)
         self.query_rewriter = QueryRewriter(llm)
-        self.hallucination_detector = HallucinationDetector(llm)
+        self.hallucination_detector = HallucinationDetector(llm, config)
 
         self.graph = self._setup_graph()
-        self.max_retries = config.get_query_config("max_retries", 1);
+        self.max_retries = config.get_query_config("search.max_retries", 1);
 
     def _setup_graph(self) -> StateGraph:
         memory = MemorySaver()
@@ -130,14 +130,14 @@ class QueryProcessWorkflow:
         documents = state.get("documents", [])
         rewrite_attempts = state.get("rewrite_attempts", 0.0)
 
-        web_search_enabled = self.config.get_query_config("web_search_enabled", False)
+        web_search_enabled = self.config.get_query_config("search.web_search_enabled", False)
 
         if not documents:
             if web_search_enabled:
                 self.logger.debug("No documents found, attempting web search")
                 return "web_search"
             elif rewrite_attempts < self.max_retries:
-                self.logger.debug("No documents found and web search disabled, attempting query rewrite")
+                self.logger.debug("No documents found and web search is disabled, attempting query rewrite")
 
                 return "rewrite"
 
@@ -179,7 +179,11 @@ class QueryProcessWorkflow:
         self.logger.info("Retrieving relevant documents")
         query = state.get("rewritten_query", "")
         self.logger.debug(f"Retrieving documents: {query}")
-        documents = self.doc_retriever.run(query)
+
+        # get search config
+        search_config = self.config.get_query_config("search")
+        documents = self.doc_retriever.run(query, relevance_threshold=search_config.get("relevance_threshold", 0.7),
+                                           max_documents=search_config.get("top_k", 5))
         state["documents"] = documents
 
         # set status as empty
@@ -213,14 +217,13 @@ class QueryProcessWorkflow:
             1. Be direct and concise
             2. Use only provided source information
             3. Include specific facts and figures
-            4. Maintain technical accuracy
-            5. Use markdown formatting for clarity
+            4. Maintain response accuracy
             
             Format:
             - Start with direct answer
             - Use bullet points for multiple facts
             - Include code blocks if technical
-            - Keep response under 150 words
+            - Keep response under 200 words
             
             Response:"""
 
@@ -316,47 +319,34 @@ class QueryProcessWorkflow:
         """Generate contextually relevant follow-up questions"""
         self.logger.info("Generating suggested questions")
         try:
+            # check if enabled
+            if not self.config.get_query_config("output.generate_suggested_documents", False):
+                self.logger.info("Suggested questions generation is disabled")
+                return state
+
             query = state.get("rewritten_query", "")
             response = state.get("response", "")
             documents = state.get("documents", state.get("web_results", []))
 
-            json_template = '''{
-                "questions": [
-                    {
-                        "question": "First technical follow-up question?",
-                        "intent": "Explore technical details",
-                        "relevance_score": 0.95
-                    },
-                    {
-                        "question": "Second implementation question?",
-                        "intent": "Understand practical application",
-                        "relevance_score": 0.85
-                    },
-                    {
-                        "question": "Third best practices question?",
-                        "intent": "Learn recommended approaches",
-                        "relevance_score": 0.75
-                    }
-                ]
-            }'''
+            prompt = f"""Generate 3 follow-up questions based on the user's query.
 
-            prompt = f"""Generate 3 focused follow-up questions based on this interaction.
+                User Query: "{query}"
+                Current Response: "{response[:200]}..."
+                Context: {self._format_documents(documents)}
 
-                Context:
-                User: "{query}"
-                Response: "{response[:200]}..."
-                
-                Available Information:
-                {self._format_documents(documents)}
-                
-                Return EXACTLY in this JSON format (no markdown, no code blocks):
-                {json_template}
-                
                 Requirements:
-                - Questions must be specific and actionable
-                - Focus on unexplored aspects
-                - Ensure technical accuracy
-                - Return raw JSON only, no markdown formatting"""
+                - Each question should be under 100 characters
+                - Questions must be specific
+                - You could focus on deeper aspects of the original query
+                - No general or basic questions
+                - No explanations or answers
+
+                Return ONLY an array of 3 questions:
+                [
+                    "How does X specific implementation work?",
+                    "What are the performance implications of Y?",
+                    "Which technical constraints affect Z?"
+                ]"""
 
             result = self.llm.invoke([HumanMessage(content=prompt)])
             
@@ -366,19 +356,12 @@ class QueryProcessWorkflow:
             content = content.replace('```json', '').replace('```', '').strip()
             
             try:
-                parsed = json.loads(content)
-                if not isinstance(parsed, dict) or "questions" not in parsed:
-                    self.logger.warning("Invalid response structure")
+                questions = json.loads(content)
+                if isinstance(questions, list):
+                    state["suggested_questions"] = questions[:3]
+                else:
+                    self.logger.warning("Invalid response format: not a list")
                     state["suggested_questions"] = []
-                    return state
-                
-                questions = sorted(
-                    parsed["questions"],
-                    key=lambda x: float(x.get("relevance_score", 0)),
-                    reverse=True
-                )
-                suggested_questions = [q["question"] for q in questions[:3]]
-                state["suggested_questions"] = suggested_questions
                 return state
 
             except json.JSONDecodeError as e:
@@ -395,13 +378,19 @@ class QueryProcessWorkflow:
         """Generate citations from document and web search results"""
         self.logger.info("Generating citations")
         citations = []
+        seen_sources = set()  # Track unique sources
 
         # Process document citations
         documents = state.get("documents", [])
         for doc in documents:
             if hasattr(doc, 'metadata') and doc.metadata.get('source'):
+                source = doc.metadata['source']
+                # Skip if we've already seen this source
+                if source in seen_sources:
+                    continue
+                seen_sources.add(source)
                 citations.append(Citation(
-                    source=doc.metadata['source'],
+                    source=source,
                     content="",  # First 200 chars as excerpt
                     confidence=doc.metadata.get('score', 0.0)
                 ))
@@ -410,15 +399,20 @@ class QueryProcessWorkflow:
         web_results = state.get("web_results", [])
         for result in web_results:
             if isinstance(result, dict) and result.get('url'):
+                source = result['url']
+                # Skip if we've already seen this source
+                if source in seen_sources:
+                    continue
+                seen_sources.add(source)
                 citations.append(Citation(
-                    source=result['url'],
+                    source=source,
                     content="",  # Empty content since we don't need it
                     confidence=result.get('relevance_score', 0.0)
                 ))
 
         # Sort citations by confidence score
         citations.sort(key=lambda x: x.confidence, reverse=True)
-        state['citations'] = citations
+        state['citations'] = [x.source for x in citations[:3]]
 
         return state
 

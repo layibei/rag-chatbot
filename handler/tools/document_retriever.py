@@ -16,6 +16,7 @@ class DocumentRetriever:
         self.config = config
         self.logger = logger
         self.reranker = config.get_model("rerank")
+        self.rerank_enabled = config.get_query_config("search.rerank_enabled", False)
 
     def run(self, query: str, relevance_threshold: float = 0.7, max_documents: int = 5) -> List[Document]:
         """
@@ -31,7 +32,7 @@ class DocumentRetriever:
         """
         try:
             # Get more candidates for reranking
-            k = max_documents * 3 if self.reranker else max_documents * 2
+            k = max_documents * 2 if self.reranker and self.rerank_enabled  else max_documents * 1
             results = self.vectorstore.similarity_search_with_score(
                 query=query,
                 k=k

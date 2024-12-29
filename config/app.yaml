@@ -29,9 +29,21 @@ app:
     trunk_size: 2048
     overlap: 256
   query_agent:
-    rerank_enabled: true
-    parent_search_enabled: true
-    web_search_enabled: true
+    search:
+      rerank_enabled: true
+      web_search_enabled: true
+      max_retries: 1
+      top_k: 10
+      relevance_threshold: 0.7
+    hallucination:
+      high_risk: 0.6
+      medium_risk: 0.8
+    output:
+      generate_suggested_documents: true
+    metrics:
+      enabled: true
+      store_in_db: true
+      log_level: "INFO"
   proxy:
     enabled: true
     no_proxy: "localhost,127.0.0.1"
