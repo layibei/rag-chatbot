@@ -1,16 +1,23 @@
 import os
 import pytest
+from unittest.mock import Mock, patch
 from sqlalchemy import URL
-import dotenv
-from unittest.mock import Mock
-from langchain_core.language_models import BaseChatModel
-from config.common_settings import CommonConfig
-from pathlib import Path
-import yaml
 
-from config.database.database_manager import DatabaseManager
-from preprocess.index_log import Base as IndexLogBase
-from conversation import Base as ConversationBase
+# Mock both loggers before any imports to prevent circular dependency
+mock_logger = Mock()
+with patch('utils.logger_init.logger', mock_logger), \
+     patch('utils.logging_util.logger', mock_logger), \
+     patch('utils.logging_util.configure_logger', return_value=mock_logger):
+    import dotenv
+    from unittest.mock import Mock
+    from langchain_core.language_models import BaseChatModel
+    from config.common_settings import CommonConfig
+    from pathlib import Path
+    import yaml
+
+    from config.database.database_manager import DatabaseManager
+    from preprocess.index_log import Base as IndexLogBase
+    from conversation import Base as ConversationBase
 
 SAMPLE_CONFIG = """
 app:
