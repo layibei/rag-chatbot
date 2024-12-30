@@ -58,8 +58,11 @@ class ConversationHistoryRepository(BaseRepository[ConversationHistory]):
             user_input=db_obj.user_input,
             response=db_obj.response,
             created_at=db_obj.created_at,
+            is_deleted=db_obj.is_deleted,
+            modified_at=db_obj.modified_at,
             liked=db_obj.liked,
-            token_usage=db_obj.token_usage
+            created_by=db_obj.created_by,
+            modified_by=db_obj.modified_by
         )
     
     def get_session_list(self, user_id: str) -> List[ChatSession]:

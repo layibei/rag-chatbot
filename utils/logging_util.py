@@ -1,129 +1,53 @@
 # logging_util.py
 import os
 import sys
-from contextvars import ContextVar
-from typing import Dict, Any
+import logging
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
 
-from loguru import logger
-from utils.logger_init import logger  # Import pre-configured logger
+# Default logging configuration
+DEFAULT_LOG_CONFIG = {
+    'level': 'INFO',
+    'format': '%(asctime)s | %(levelname)s | %(threadName)s | %(module)s:%(funcName)s:%(lineno)d | %(metadata)s | %(message)s',
+    'date_format': '%Y-%m-%d %H:%M:%S'
+}
 
-# Context management
-_request_context: ContextVar[Dict[str, Any]] = ContextVar('request_context', default={})
-# Get the absolute path of the current file
-CURRENT_FILE_PATH = os.path.abspath(__file__)
-# Get the directory containing the current file
-BASE_DIR = os.path.dirname(CURRENT_FILE_PATH)
-
-def set_context(**kwargs):
-    """
-    Set context values using keyword arguments
-    Example: set_context(user_id="123", session_id="abc")
-    """
-    try:
-        context = get_context()
-        context.update(kwargs)
-        _request_context.set(context)
-        logger.debug(f"Context updated: {kwargs}")
-    except Exception as e:
-        logger.error(f"Error setting context: {str(e)}")
-
-def get_context() -> Dict[str, str]:
-    """Get the current context dictionary"""
-    try:
-        return _request_context.get()
-    except Exception as e:
-        logger.error(f"Error getting context: {str(e)}")
-        return {}
-def clear_context():
-    """lear all context values"""
-    try:
-       _request_context.set({})
-       logger.debug("Context cleared")  # Debug log
-    except Exception as e:
-       logger.error(f"Error clearing context: {str(e)}")
-
-
-class SafeContextFilter:
-    def __call__(self, record):
-        try:
-            # Get current context and update record's extra dict
-            context = get_context()
-            record["extra"].update(context)
-            return True
-        except Exception as e:
-            logger.error(f"Error in context filter: {str(e)}")
-            return True
-
-def configure_logger(log_file="app.log", max_bytes=10 * 1024 * 1024, backup_count=5):
-    """Configure logger with context support"""
-    # Lazy import to avoid circular dependency
-    from config.common_settings import CommonConfig
-    config = CommonConfig()
+def configure_logger(log_file_path: str = None, config: dict = None) -> logging.Logger:
+    """Configure and return a logger instance"""
+    log_config = config or DEFAULT_LOG_CONFIG
     
-    logger.remove()
-
-    # Format string with extra context
-    log_format = (
-        "<green>{time:YYYY-MM-DD HH:mm:ss}</green> | "
-        "{level.icon} {level.name:<8} | "
-        "<blue>{thread.name}</blue> | "
-        # "<blue>{process.id}</blue> | "
-        "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> | "
-        "{extra} | "
-        "{message}"
+    # Create logger
+    logger = logging.getLogger('app')
+    logger.setLevel(log_config.get('level', 'INFO'))
+    
+    # Create formatters and handlers
+    formatter = logging.Formatter(
+        fmt=log_config.get('format', DEFAULT_LOG_CONFIG['format']),
+        datefmt=log_config.get('date_format', DEFAULT_LOG_CONFIG['date_format'])
     )
-
-    # Get logging configuration
-    logging_levels = config.config.get("app", {}).get("logging.level", {})
-    root_level = logging_levels.get("root", "INFO")
-
-    def log_filter(record):
-        """Filter log records based on module name with hierarchical path support"""
-        module_name = record["name"]
-        
-        # Find the most specific matching package path
-        matching_level = root_level
-        matching_length = 0
-        
-        for pkg_path, level in logging_levels.items():
-            if pkg_path != "root" and module_name.startswith(pkg_path):
-                path_length = len(pkg_path.split('.'))
-                if path_length > matching_length:
-                    matching_level = level
-                    matching_length = path_length
-        
-        return record["level"].name >= matching_level
-
-    # Add file handler
-    logger.add(
-        sink=log_file,
-        format=log_format,
-        filter=lambda record: SafeContextFilter()(record) and log_filter(record),
-        colorize=False,
-        enqueue=True,
-        rotation=max_bytes,
-        retention=backup_count,
-        catch=True,
-        level="DEBUG"  # Base level - actual filtering done by log_filter
-    )
-
+    
     # Console handler
-    logger.add(
-        sink=sys.stdout,
-        format=log_format,
-        filter=lambda record: SafeContextFilter()(record) and log_filter(record),
-        colorize=True,
-        enqueue=True,
-        catch=True,
-        level="DEBUG"  # Base level - actual filtering done by log_filter
-    )
-
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setFormatter(formatter)
+    logger.addHandler(console_handler)
+    
+    # File handler (if path provided)
+    if log_file_path:
+        # Ensure directory exists
+        log_dir = os.path.dirname(log_file_path)
+        if log_dir:
+            os.makedirs(log_dir, exist_ok=True)
+            
+        file_handler = RotatingFileHandler(
+            log_file_path,
+            maxBytes=10*1024*1024,  # 10MB
+            backupCount=5
+        )
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
+    
     return logger
 
-
-# Initialize the logger
-logger = configure_logger(os.path.join(BASE_DIR, "../app.log"))
-logger.level("INFO")
-
-if __name__ == "__main__":
-    logger.info("This is an info message.")
+# Initialize default logger
+BASE_DIR = str(Path(__file__).resolve().parent)
+logger = configure_logger()

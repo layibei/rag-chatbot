@@ -4,9 +4,8 @@ from langchain_core.messages import HumanMessage
 from langchain_core.documents import Document
 from config.common_settings import CommonConfig
 from utils.logging_util import logger
-import json
 
-OutputFormat = Literal["chart", "table", "markdown", "code", "json"]
+OutputFormat = Literal["chart", "table", "markdown", "code"]
 
 
 class ResponseFormatter:
@@ -33,17 +32,20 @@ class ResponseFormatter:
             if not response:
                 return state
 
+            # Detect format using LLM
             output_format = self._detect_output_format(response, user_input)
             
-            formatters = {
-                "json": self._format_json,
+            # Format based on detected type
+            formatted_response = {
                 "chart": self._format_chart,
                 "table": self._format_table,
                 "code": self._format_code,
-                "markdown": self._format_markdown
-            }
-            
-            formatted_response = formatters[output_format](response, documents)
+                "markdown": lambda r, d: self._format_markdown(r, d)
+            }[output_format](response, documents)
+
+            # # Add sources if available
+            # if documents:
+            #     formatted_response = self._add_sources(formatted_response, documents, output_format)
 
             return {
                 "response": formatted_response,
@@ -59,73 +61,63 @@ class ResponseFormatter:
 
     def _detect_output_format(self, response: str, user_input: str) -> OutputFormat:
         """Use LLM to intelligently detect the most appropriate output format"""
-        prompt = """You are an expert in content analysis and formatting. Analyze this content and determine the optimal output format.
+        prompt = """As a format detection expert, analyze this content and determine the optimal output format.
+        Choose from: chart, table, markdown, or code.
+        
+        USER QUERY: {user_input}
+        CONTENT TO ANALYZE: {response}
 
-        Content to Analyze:
-        User Query: {user_input}
-        Response Content: {response}
+        FORMAT CRITERIA:
+        1. CHART Format (Choose if):
+           - Contains numerical data that would benefit from visualization
+           - Describes trends, comparisons, or distributions
+           - Mentions statistics, percentages, or time-series data
+           - User asks for visual representation
+           Examples: price trends, performance metrics, statistical distributions
 
-        Available Output Formats:
+        2. TABLE Format (Choose if):
+           - Contains structured, tabular data
+           - Presents comparisons across multiple attributes
+           - Lists properties or specifications
+           - Contains row-column structured information
+           Examples: product comparisons, feature lists, configuration settings
 
-        1. JSON Format (Priority: Highest for Data)
-           ✓ Structured data that needs to be parsed
-           ✓ API-like responses or configurations
-           ✓ Nested data structures
-           ✓ Machine-readable content
-           Example queries: "List all configuration options", "Get user properties"
+        3. CODE Format (Choose if):
+           - Contains programming syntax
+           - Shows command-line instructions
+           - Includes technical implementation details
+           - Demonstrates software configurations
+           Examples: code snippets, API usage, configuration files
 
-        2. TABLE Format (Priority: High for Comparisons)
-           ✓ Structured comparisons across items
-           ✓ Property listings
-           ✓ Feature matrices
-           ✓ Specification lists
-           Example queries: "Compare framework features", "List API endpoints"
+        4. MARKDOWN Format (Choose if):
+           - Contains explanatory text with structure
+           - Requires hierarchical organization
+           - Needs formatting for readability
+           - Contains mixed content types
+           Examples: technical documentation, step-by-step guides
 
-        3. CHART Format (Priority: High for Trends)
-           ✓ Numerical trends or patterns
-           ✓ Statistical distributions
-           ✓ Performance metrics
-           ✓ Time-series data
-           Example queries: "Show performance trends", "Display usage statistics"
+        INSTRUCTIONS:
+        1. Analyze both the user query and the content
+        2. Consider the primary purpose of the information
+        3. Choose the format that best serves the information's purpose
+        4. Return ONLY ONE of: chart, table, markdown, code
 
-        4. CODE Format (Priority: High for Technical)
-           ✓ Programming examples
-           ✓ Command-line instructions
-           ✓ Configuration snippets
-           ✓ Technical implementations
-           Example queries: "How to implement X", "Show me the code for Y"
-
-        5. MARKDOWN Format (Priority: Default)
-           ✓ Explanatory content
-           ✓ Mixed content types
-           ✓ Documentation
-           ✓ Step-by-step guides
-           Example queries: "Explain how X works", "What is the process for Y"
-
-        Decision Process:
-        1. Analyze the user's intent first
-        2. Examine the content structure
-        3. Consider data parsability
-        4. Evaluate visualization needs
-        5. Check for technical requirements
-
-        Return ONLY one word from: json, table, chart, code, markdown
-
-        Your format choice:"""
+        RETURN FORMAT: Single word response (chart/table/markdown/code)"""
 
         try:
             format_response = self.llm.invoke(
                 [HumanMessage(content=prompt.format(
                     user_input=user_input,
-                    response=response[:1000]
+                    response=response[:1000]  # Limit content length for token efficiency
                 ))]
             ).content.strip().lower()
 
-            if format_response in ["json", "chart", "table", "markdown", "code"]:
-                logger.debug(f"Detected format: {format_response}")
+            # Validate and return format
+            if format_response in ["chart", "table", "markdown", "code"]:
+                logger.debug(f"Detected format: {format_response} for response")
                 return format_response
             
-            logger.warning(f"Invalid format detected: {format_response}, defaulting to markdown")
+            logger.warning(f"Invalid format detected: {format_response}, falling back to markdown")
             return "markdown"
             
         except Exception as e:
@@ -263,59 +255,3 @@ class ResponseFormatter:
             return f'```{lang}{code}```'
 
         return re.sub(code_block_pattern, add_language_tag, text, flags=re.DOTALL)
-
-    def _format_json(self, response: str, documents: List[Document]) -> str:
-        """Format response as structured JSON"""
-        prompt = """Convert the following content into well-structured JSON format.
-
-        Content to Convert:
-        {response}
-
-        Guidelines:
-        1. Ensure valid JSON syntax
-        2. Use appropriate data types:
-           - Strings for text
-           - Numbers for numerical values
-           - Boolean for true/false
-           - Arrays for lists
-           - Objects for structured data
-        3. Use meaningful key names
-        4. Maintain data relationships
-        5. Include all relevant information
-        6. Format nested structures clearly
-        7. Preserve numerical precision
-        8. Handle special characters properly
-
-        Bad Example:
-        {{ "data": "everything in one string" }}
-
-        Good Example:
-        {{
-            "title": "API Configuration",
-            "version": 2.1,
-            "settings": {{
-                "enabled": true,
-                "maxRetries": 3,
-                "endpoints": [
-                    {{
-                        "name": "primary",
-                        "url": "https://api.example.com",
-                        "timeout": 30
-                    }}
-                ]
-            }}
-        }}
-
-        Convert to JSON:"""
-
-        try:
-            formatted = self.llm.invoke([HumanMessage(content=prompt.format(response=response))]).content
-            # Validate JSON
-            json.loads(formatted)  # Will raise JSONDecodeError if invalid
-            return f"```json\n{formatted}\n```"
-        except json.JSONDecodeError as e:
-            logger.error(f"Invalid JSON generated: {str(e)}")
-            return response
-        except Exception as e:
-            logger.error(f"Error formatting JSON: {str(e)}")
-            return response

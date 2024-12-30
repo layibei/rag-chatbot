@@ -14,7 +14,7 @@ from langchain_postgres import PGVector
 from FlagEmbedding import FlagReranker
 
 from config.database.database_manager import DatabaseManager
-from utils.logger_init import logger
+from utils.logging_util import logger
 
 # Get the absolute path of the current file
 CURRENT_FILE_PATH = os.path.abspath(__file__)
@@ -97,11 +97,6 @@ class CommonConfig:
                 )
             elif model_type == "anthropic":
                 return ChatAnthropic(
-                    model=model_config.get("model"),
-                    temperature=0.85,
-                )
-            elif model_type == "ollama":
-                return ChatOllama(
                     model=model_config.get("model"),
                     temperature=0.85,
                 )

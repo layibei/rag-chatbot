@@ -92,6 +92,8 @@ class DocEmbeddingsProcessor:
             source (str): The identifier of the document source
             checksum (str): The checksum of the document, used to uniquely identify the document
         """
+        docs = []  # Initialize docs before the conditional blocks
+        
         # Search for document embeddings that match the source and checksum in the vector store
         if isinstance(self.vector_store, RedisVectorStore):
             docs = self.vector_store.search_by_metadata({
@@ -113,6 +115,8 @@ class DocEmbeddingsProcessor:
                 k=100,  # Adjust based on expected max documents
                 filter=filter
             )
+        else:
+            self.logger.warning(f"Unsupported vector store type: {type(self.vector_store)}")
 
         # If matching document embeddings are found, delete them from the vector store
         if docs:

@@ -1,6 +1,6 @@
 import pytest
 from unittest.mock import Mock
-from datetime import datetime, UTC
+from datetime import datetime, timezone
 
 from config.database.exceptions import DatabaseError
 from preprocess.index_log import IndexLog, Status, SourceType
@@ -21,9 +21,9 @@ def sample_log():
         source_type=SourceType.PDF,
         checksum="abc123",
         status=Status.PENDING,
-        created_at=datetime.now(UTC),
+        created_at=datetime.now(timezone.utc),
         created_by="test_user",
-        modified_at=datetime.now(UTC),
+        modified_at=datetime.now(timezone.utc),
         modified_by="test_user"
     )
 
@@ -55,12 +55,6 @@ class TestIndexLogHelper:
         helper.delete_by_source("test.pdf")
         mock_repository.delete_by_source.assert_called_once_with("test.pdf")
 
-    def test_get_next_pending_with_lock(self, helper, mock_repository, sample_log):
-        mock_repository.get_next_pending_with_lock.return_value = sample_log
-        result = helper.get_next_pending_with_lock()
-        assert result == sample_log
-        mock_repository.get_next_pending_with_lock.assert_called_once()
-
     def test_find_by_id(self, helper, mock_repository, sample_log):
         mock_repository.find_by_id.return_value = sample_log
         result = helper.find_by_id(1)
@@ -77,7 +71,13 @@ class TestIndexLogHelper:
             user_id="test_user"
         )
         assert result == sample_log
-        mock_repository.create.assert_called_once()
+        mock_repository.create.assert_called_once_with(
+            source="test.pdf",
+            source_type=SourceType.PDF,
+            checksum="abc123",
+            status=Status.PENDING,
+            user_id="test_user"
+        )
 
     def test_list_logs(self, helper, mock_repository):
         mock_repository.list_logs.return_value = []
@@ -90,3 +90,15 @@ class TestIndexLogHelper:
         result = helper.list_logs(page=1, page_size=10, search="test")
         assert result == []
         mock_repository.list_logs.assert_called_once_with(1, 10, "test")
+
+    def test_get_stalled_index_logs(self, helper, mock_repository):
+        stalled_time = datetime.now(timezone.utc)
+        mock_repository.find_all.return_value = []
+        result = helper.get_stalled_index_logs(stalled_time)
+        assert result == []
+        mock_repository.find_all.assert_called_once_with(
+            filters={
+                'status': Status.IN_PROGRESS,
+                'modified_at_lt': stalled_time
+            }
+        )
