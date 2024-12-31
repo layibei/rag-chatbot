@@ -1,12 +1,17 @@
 from pydantic import BaseModel
 from typing import List
+
+from config.common_settings import CommonConfig
 from conversation import ChatSession
 from fastapi import APIRouter, HTTPException, Query, Body
 from conversation.conversation_history_helper import ConversationHistoryHelper
 import traceback
+
+from conversation.repositories import ConversationHistoryRepository
 from utils.logging_util import logger  # Using the existing logger from the codebase
 
 router = APIRouter(tags=["chat-history"])
+base_config = CommonConfig()
 
 
 # Existing response model
@@ -37,7 +42,7 @@ class LikeRequest(BaseModel):
 @router.get("/histories/{user_id}", response_model=ChatSessionResponse)
 def get_chat_histories(user_id: str):
     try:
-        helper = ConversationHistoryHelper()
+        helper = ConversationHistoryHelper(ConversationHistoryRepository(base_config.get_db_manager()))
         sessions = helper.get_session_list(user_id)
         return ChatSessionResponse(
             user_id=user_id,
@@ -56,7 +61,7 @@ def get_session_history(
         limit: int = Query(default=10, gt=0)
 ):
     try:
-        helper = ConversationHistoryHelper()
+        helper = ConversationHistoryHelper(ConversationHistoryRepository(base_config.get_db_manager()))
         histories = helper.get_conversation_history(user_id, session_id, limit)
         messages = [
             ConversationMessage(
@@ -91,7 +96,7 @@ def update_message_like(
         like_request: LikeRequest = Body(...)
 ):
     try:
-        helper = ConversationHistoryHelper()
+        helper = ConversationHistoryHelper(ConversationHistoryRepository(base_config.get_db_manager()))
         updated_message = helper.update_message_like(
             user_id=user_id,
             session_id=session_id,
@@ -133,7 +138,7 @@ def delete_session(
         session_id: str
 ):
     try:
-        helper = ConversationHistoryHelper()
+        helper = ConversationHistoryHelper(ConversationHistoryRepository(base_config.get_db_manager()))
         success = helper.delete_session(user_id, session_id)
 
         if not success:

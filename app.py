@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from langchain.globals import set_debug
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.cors import CORSMiddleware
 
 from api.chat_history_routes import router as chat_history_router
 from api.chat_routes import router as chat_router
@@ -25,35 +26,25 @@ class LoggingContextMiddleware(BaseHTTPMiddleware):
         session_id = request.headers.get('X-Session-Id')
         request_id = request.headers.get('X-Request-Id')
         
-        # For /query endpoints, generate missing IDs
-        if request.url.path == '/chat/completion':
-            headers_modified = False
-            
-            if not session_id:
-                session_id = f"sess_{get_id().lower()}"
-                # Modify request headers
-                request.headers._list.append(
-                    (b'x-session-id', session_id.encode())
-                )
-                headers_modified = True
-                logger.debug(f"Generated new session_id: {session_id}")
-            
-            if not request_id:
-                request_id = f"req_{get_id().lower()}"
-                # Modify request headers
-                request.headers._list.append(
-                    (b'x-request-id', request_id.encode())
-                )
-                headers_modified = True
-                logger.debug(f"Generated new request_id: {request_id}")
-            
-            if headers_modified:
-                # Update the headers scope for ASGI
-                request.scope['headers'] = request.headers._list
-        else:
-            # For non-query endpoints, use defaults if not provided
-            session_id = session_id or 'unknown'
-            request_id = request_id or 'unknown'
+        # For all endpoints, generate missing IDs
+        if not session_id or len(session_id.strip()) == 0:
+            session_id = f"sess_{get_id().lower()}"
+            # Modify request headers
+            request.headers._list.append(
+                (b'x-session-id', session_id.encode())
+            )
+            logger.debug(f"Generated new session_id: {session_id}")
+        
+        if not request_id or len(request_id.strip()) == 0:
+            request_id = f"req_{get_id().lower()}"
+            # Modify request headers
+            request.headers._list.append(
+                (b'x-request-id', request_id.encode())
+            )
+            logger.debug(f"Generated new request_id: {request_id}")
+        
+        # Update the headers scope for ASGI
+        request.scope['headers'] = request.headers._list
 
         # Set context using keyword arguments
         set_context(
@@ -64,6 +55,10 @@ class LoggingContextMiddleware(BaseHTTPMiddleware):
 
         try:
             response = await call_next(request)
+            # Add the session ID to response headers
+            response.headers['X-Session-Id'] = session_id
+            response.headers['X-Request-Id'] = request_id
+            response.headers['X-User-Id'] = user_id
             return response
         finally:
             clear_context()
@@ -103,6 +98,15 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 app.add_middleware(LoggingContextMiddleware)
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allow all origins, adjust as needed
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["*"],  # Allow all headers, adjust as needed
+)
 
 app.include_router(chat_history_router, prefix="/chat")
 app.include_router(embedding_router, prefix="/embedding")

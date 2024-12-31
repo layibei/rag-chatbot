@@ -42,3 +42,7 @@ docker run -d \
 
 # Init the database
 Run the init sql files under config/db
+
+# Q&A
+1.Too many free trial accounts used on this machine. Please upgrade to pro. We have this limit in place to prevent abuse. Please let us know if you believe this is a mistake. Request ID: 03916405-a2bf-4fe9-80e5-877001db1313
+> Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process; iwr -useb https://raw.githubusercontent.com/resetsix/cursor_device_id/main/device_id_win.ps1 | iex

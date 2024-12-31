@@ -9,6 +9,7 @@ class RequestState(TypedDict):
     session_id: str
     request_id: str
     user_input: str
+    original_query: str
     rewritten_query: str
 
     messages: Annotated[list[str], add_messages]

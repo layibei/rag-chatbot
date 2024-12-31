@@ -14,7 +14,7 @@ from langchain_postgres import PGVector
 from FlagEmbedding import FlagReranker
 
 from config.database.database_manager import DatabaseManager
-from utils.logging_util import logger
+from utils.logger_init import logger
 
 # Get the absolute path of the current file
 CURRENT_FILE_PATH = os.path.abspath(__file__)
@@ -160,28 +160,32 @@ class CommonConfig:
         self.check_config(self.config, ["app", "query_agent"], "Query agent config is not found")
         query_agent_config = self.config["app"]["query_agent"]
 
-        if key is None:
-            return {
-                "search": {
-                    "rerank_enabled": query_agent_config.get("search", {}).get("rerank_enabled", True),
-                    "web_search_enabled": query_agent_config.get("search", {}).get("web_search_enabled", False),
-                    "max_retries": query_agent_config.get("search", {}).get("max_retries", 1),
-                    "top_k": query_agent_config.get("search", {}).get("top_k", 10),
-                    "relevance_threshold": query_agent_config.get("search", {}).get("relevance_threshold", 0.7)
-                },
-                "hallucination": {
-                    "high_risk": query_agent_config.get("hallucination", {}).get("high_risk", 0.6),
-                    "medium_risk": query_agent_config.get("hallucination", {}).get("medium_risk", 0.8)
-                },
-                "output": {
-                    "generate_suggested_documents": query_agent_config.get("output", {}).get("generate_suggested_documents", True)
-                },
-                "metrics": {
-                    "enabled": query_agent_config.get("metrics", {}).get("enabled", True),
-                    "store_in_db": query_agent_config.get("metrics", {}).get("store_in_db", True),
-                    "log_level": query_agent_config.get("metrics", {}).get("log_level", "INFO")
-                }
+        query_config = {
+            "search": {
+                "rerank_enabled": query_agent_config.get("search", {}).get("rerank_enabled", False),
+                "web_search_enabled": query_agent_config.get("search", {}).get("web_search_enabled", False),
+                "max_retries": query_agent_config.get("search", {}).get("max_retries", 1),
+                "top_k": query_agent_config.get("search", {}).get("top_k", 10),
+                "relevance_threshold": query_agent_config.get("search", {}).get("relevance_threshold", 0.7)
+            },
+            "hallucination": {
+                "high_risk": query_agent_config.get("hallucination", {}).get("high_risk", 0.6),
+                "medium_risk": query_agent_config.get("hallucination", {}).get("medium_risk", 0.8)
+            },
+            "output": {
+                "generate_suggested_documents": query_agent_config.get("output", {}).get("generate_suggested_documents",
+                                                                                         False),
+                "generate_citations": query_agent_config.get("output", {}).get("generate_suggested_documents", False)
+            },
+            "metrics": {
+                "enabled": query_agent_config.get("metrics", {}).get("enabled", True),
+                "store_in_db": query_agent_config.get("metrics", {}).get("store_in_db", True),
+                "log_level": query_agent_config.get("metrics", {}).get("log_level", "INFO")
             }
+        }
+
+        if key is None:
+            return query_config
 
         # Handle nested key access
         keys = key.split(".")

@@ -32,18 +32,24 @@ class Citation:
 
 @dataclass
 class QueryResponse:
-    answer: str
-    citations: List[str]
-    suggested_questions: List[str]
-    metadata: Dict[str, Any]
+    def __init__(self, answer: str, citations: List[str] = None, suggested_questions: List[str] = None, metadata: Dict = None):
+        self.answer = answer
+        self.citations = citations or []
+        self.suggested_questions = suggested_questions or []
+        self.metadata = metadata or {}
 
     def to_dict(self) -> Dict[str, Any]:
+        """Convert the response object to a dictionary"""
         return {
             "answer": self.answer,
             "citations": self.citations,
             "suggested_questions": self.suggested_questions,
             "metadata": self.metadata
         }
+
+    def __str__(self) -> str:
+        """String representation of the response"""
+        return str(self.to_dict())
 
 
 class QueryProcessWorkflow:
@@ -112,7 +118,7 @@ class QueryProcessWorkflow:
             {
                 "rewrite": "rewrite_query",
                 "enhance": "enhance_response",
-                "format": "format_response"
+                "generate_suggested_questions": "generate_suggested_questions"
             }
         )
 
@@ -197,8 +203,6 @@ class QueryProcessWorkflow:
         query = state["rewritten_query"]
         documents = state.get("documents", [])
         web_results = state.get("web_results", [])
-        state["response"] = None
-        state["output_format"] = ""
 
         sources = []
         if documents:
@@ -206,28 +210,48 @@ class QueryProcessWorkflow:
         if web_results:
             sources.extend([f"Web Result: {result}" for result in web_results])
 
-        prompt = f"""You are a precise and concise assistant. Generate a clear, factual response based on the provided sources.
-            
-            Query: "{query}"
-            
-            Sources:
-            {chr(10).join(sources)}
-            
-            Requirements:
-            1. Be direct and concise
-            2. Use only provided source information
-            3. Include specific facts and figures
-            4. Maintain response accuracy
-            5. The response should be accurate and relevant to the query
-            6. Do not include any additional information or explanation about the generation
-            
-            Format:
-            - Start with direct answer
-            - Use bullet points for multiple facts
-            - Include code blocks if any
-            - Keep response under 200 words
-            
-            Response:"""
+        prompt = f"""You are a senior software engineer providing expert answers. Your goal is to give the most satisfying answer with the least words necessary.
+
+        User Question: "{query}"
+
+        Sources:
+        {chr(10).join(sources)}
+
+        RESPONSE RULES:
+
+        1. ANSWER TYPE DETECTION
+           Simple fact question (version, date, name):
+             → Give ONLY the direct answer in one sentence
+           How-to question:
+             → Give step-by-step instructions
+           Comparison question:
+             → List key differences briefly
+           Explanation question:
+             → Give concise explanation with examples
+
+        2. RESPONSE LENGTH
+           - For simple facts: One sentence
+           - For how-to: 3-5 steps maximum
+           - For comparisons: 2-3 key points
+           - For explanations: 2-3 short paragraphs
+
+        3. MUST FOLLOW
+           - Start with the direct answer
+           - Add context ONLY if crucial
+           - No source references
+           - No unnecessary background
+           - No extra information
+
+        4. ABSOLUTELY AVOID
+           - Long explanations
+           - Historical context
+           - Future predictions
+           - Alternative options
+           - Unnecessary details
+
+        Remember: The best answer is the shortest one that fully satisfies the user's question.
+
+        Your response:"""
 
         response = self.llm.invoke([HumanMessage(content=prompt)]).content
         state["response"] = response
@@ -254,26 +278,55 @@ class QueryProcessWorkflow:
 
     def _enhance_response(self, state: RequestState) -> RequestState:
         """Enhance response quality for medium/high risk responses"""
-        self.logger.info("Enhancing response quality for medium/high risk responses")
         try:
             response = state.get("response", "")
             documents = state.get("documents", state.get("web_result", ""))
+            query = state.get("rewritten_query", "")
 
-            prompt = f"""Enhance this response with source-verified facts. Be concise and precise.
+            prompt = f"""As a senior software engineer, make this response more concise and user-friendly.
 
-                Original: {response}
-                
-                Sources:
-                {self._format_documents(documents)}
-                
-                Requirements:
-                1. Add specific facts from sources
-                2. Keep original key points
-                3. Stay under 200 words
-                4. Use markdown formatting
-                5. Maintain technical accuracy
-                
-                Enhanced response:"""
+            Original Question: "{query}"
+
+            Current Response: {response}
+
+            Available Sources:
+            {self._format_documents(documents)}
+
+            ENHANCEMENT RULES:
+
+            1. LENGTH CHECK
+               - Can this be answered in fewer words?
+               - Is every word necessary?
+               - Remove all non-essential information
+
+            2. DIRECTNESS CHECK
+               - Is the main answer in the first sentence?
+               - Remove any delayed answers
+               - Cut all "nice to know" information
+
+            3. CLARITY CHECK
+               - Is it immediately understandable?
+               - Remove all complex explanations
+               - Simplify technical language
+
+            4. VALUE CHECK
+               - Does every sentence add value?
+               - Remove decorative language
+               - Cut redundant information
+
+            REMEMBER:
+            - Shorter is better
+            - Direct is better
+            - Simple is better
+            - Clear is better
+
+            If you see:
+            - Multiple sentences → Try one
+            - Paragraphs → Try bullets
+            - Technical terms → Try simpler words
+            - Background info → Remove it
+
+            Enhanced response:"""
 
             enhanced = self.llm.invoke([HumanMessage(content=prompt)]).content
             state["response"] = enhanced
@@ -322,7 +375,7 @@ class QueryProcessWorkflow:
             self.logger.debug(f"Attempting query rewrite due to hallucination risk,rewrite_attempts:{rewrite_attempts}")
             return "rewrite"
 
-        return "format"
+        return "generate_suggested_questions"
 
     def _generate_suggested_questions(self, state: RequestState) -> RequestState:
         """Generate contextually relevant follow-up questions"""
@@ -334,7 +387,6 @@ class QueryProcessWorkflow:
 
             query = state.get("rewritten_query", "")
             response = state.get("response", "")
-            documents = state.get("documents", state.get("web_results", []))
 
             prompt = """You are an AI assistant specialized in generating insightful follow-up questions.
 
@@ -384,20 +436,20 @@ class QueryProcessWorkflow:
                 query=query,
                 summary=response[:200]
             ))]).content.strip()
-            
+
             # Remove any markdown code block syntax if present
             result = result.replace('```json', '').replace('```', '').strip()
-            
+
             try:
                 parsed = json.loads(result)
                 questions = parsed.get("questions", [])
-                
+
                 if len(questions) == 3 and all(isinstance(q, str) and q.strip().endswith("?") for q in questions):
                     state["suggested_questions"] = questions
                 else:
                     self.logger.warning("Invalid questions format or count")
                     state["suggested_questions"] = []
-                    
+
             except json.JSONDecodeError as e:
                 self.logger.error(f"JSON parsing error: {str(e)}\nResponse was: {result}")
                 state["suggested_questions"] = []
@@ -412,6 +464,12 @@ class QueryProcessWorkflow:
     def _generate_citations(self, state: RequestState) -> RequestState:
         """Generate citations from document and web search results"""
         self.logger.info("Generating citations")
+
+        # need to check if it's enabled or not, if not return state.
+        if not self.config.get_query_config("output.generate_citations", False):
+            self.logger.info("Citation generation is disabled")
+            return state
+
         citations = []
         seen_sources = set()  # Track unique sources
 
@@ -451,7 +509,8 @@ class QueryProcessWorkflow:
 
         return state
 
-    def invoke(self, user_input: str, user_id: str, request_id: str, session_id: str) -> Dict[str, Any]:
+    def invoke(self, user_input: str, user_id: str, request_id: str, session_id: str, original_query: str) -> Dict[
+        str, Any]:
         """
         Invoke the workflow with the given input
         """
@@ -466,9 +525,10 @@ class QueryProcessWorkflow:
             "session_id": session_id,
             "request_id": request_id,
             "user_input": user_input,
+            "original_query": original_query,
 
             # Initialize fields that will be modified
-            "rewritten_query": user_input,
+            "rewritten_query": original_query,
             "documents": [],
             "web_results": [],
             "response": None,
@@ -484,7 +544,8 @@ class QueryProcessWorkflow:
         }
 
         for s in self.graph.stream(initial_state, thread):
-            self.logger.info(s)
+            # self.logger.info(s)
+            pass
 
         final_state = self.graph.get_state(thread)
         self.logger.debug(f"final response state:{final_state}")

@@ -27,6 +27,7 @@ class WebSearch:
                 - content: Snippet of relevant content
         """
         try:
+            # search use original query, without much chat histories added
             self.logger.info(f"Running web search for query: {query}")
             results = self.web_search_tool.invoke(query)
             

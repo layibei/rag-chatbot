@@ -47,9 +47,7 @@ class HallucinationDetector:
 
     def _check_hallucination(self, response: str, documents: List[Document], web_results: List[Dict] = None) -> float:
         """Compare response with source documents for verification"""
-        prompt = f"""You are an expert fact-checker responsible for verifying information accuracy.
-
-        TASK: Calculate a verification score by comparing the response against source documents.
+        prompt = f"""You are an expert fact-checker responsible for verifying information accuracy. Your task is to analyze the response against source documents and calculate a precise verification score.
 
         Response to verify:
         {response}
@@ -57,69 +55,81 @@ class HallucinationDetector:
         Source Documents:
         {self._format_documents(documents, web_results)}
 
-        SCORING CALCULATION:
+        SCORING CRITERIA:
 
-        1. Source Alignment (40 points max):
-           - Direct quotes or paraphrasing (20 points)
-           - Logical inferences from sources (10 points)
-           - Staying within source scope (10 points)
-           Score calculation: Count supported statements / total statements * category points
+        1. SOURCE ALIGNMENT (40 points)
+        - Direct Quote Accuracy (20 points)
+            * 20: Perfect match with source content
+            * 15: Minor paraphrasing but same meaning
+            * 10: Partial match with some discrepancies
+            * 5: Minimal alignment with sources
+            * 0: No matching content found
 
-        2. Factual Accuracy (30 points max):
-           - Core facts match sources (15 points)
-           - Technical terms used correctly (10 points)
-           - Numbers and specifics accurate (5 points)
-           Score calculation: Number of accurate facts / total facts * category points
+        - Temporal Relevance (20 points)
+            * 20: Information is current and up-to-date
+            * 15: Slightly outdated but mostly relevant
+            * 10: Significantly outdated information
+            * 5: Obsolete information
+            * 0: Temporal context completely wrong
 
-        3. Response Integrity (20 points max):
-           - No unsupported claims (10 points)
-           - Appropriate uncertainty language (5 points)
-           - Accurate information synthesis (5 points)
-           Score calculation: Deduct points for each violation
+        2. FACTUAL ACCURACY (30 points)
+        - Technical Precision (15 points)
+            * 15: All technical details are correct
+            * 10: Minor technical inaccuracies
+            * 5: Major technical errors
+            * 0: Completely incorrect technical information
 
-        4. Context Reliability (10 points max):
-           - Original context preserved (5 points)
-           - No contradictions (5 points)
-           Score calculation: Full points if preserved, deduct for each issue
+        - Numerical Accuracy (15 points)
+            * 15: All numbers/versions/dates match sources
+            * 10: Minor numerical discrepancies
+            * 5: Major numerical errors
+            * 0: All numbers are wrong
 
-        FINAL SCORE CALCULATION:
-        1. Calculate points for each category
-        2. Sum all category points (max 100)
-        3. Divide total by 100 to get final score between 0.0 and 1.0
-        4. Round to two decimal places
+        3. RESPONSE INTEGRITY (20 points)
+        - Logical Consistency (10 points)
+            * 10: Perfectly coherent with no contradictions
+            * 5: Minor inconsistencies
+            * 0: Major logical contradictions
 
-        Example Calculation:
-        Source Alignment:    35/40 points (strong direct support, minor inferences)
-        Factual Accuracy:    25/30 points (core facts correct, one number imprecise)
-        Response Integrity:  18/20 points (good synthesis, appropriate caveats)
-        Context Reliability: 8/10 points (context maintained, minor ambiguity)
-        Total: 86/100 = 0.86 final score
+        - Scope Adherence (10 points)
+            * 10: Stays within scope of sources
+            * 5: Minor scope creep
+            * 0: Significant unsupported claims
 
-        SCORING REFERENCE:
-        1.0 (100 points): Perfect alignment with sources
-        0.8-0.9 (80-90 points): Strong support with minor imprecisions
-        0.6-0.7 (60-70 points): Moderate support with some gaps
-        0.0-0.5 (0-50 points): Poor support or major discrepancies
+        4. CONTEXT RELIABILITY (10 points)
+        - Context Preservation (10 points)
+            * 10: Perfect context maintenance
+            * 5: Slight context distortion
+            * 0: Complete context loss
 
-        ANALYSIS STEPS:
-        1. Review each statement in response
-        2. Check source support for each claim
-        3. Calculate points for each category using criteria above
-        4. Sum category points
-        5. Divide by 100 for final score
-        6. Round to two decimal places
+        CALCULATION INSTRUCTIONS:
+        1. Score each subcategory according to the criteria
+        2. Sum all points
+        3. Divide by 100 to get final score between 0.0 and 1.0
 
-        Return ONLY the final decimal score between 0.0 and 1.0.
+        RISK LEVELS:
+        - 0.0-0.5: HIGH RISK (Major hallucination)
+        - 0.51-0.75: MEDIUM RISK (Partial hallucination)
+        - 0.76-1.0: LOW RISK (Reliable)
+
+        IMPORTANT: Return ONLY the final decimal score between 0.0 and 1.0.
         Example outputs: 0.95, 0.82, 0.67, 0.43
 
         Your calculated score with all categories summed:"""
 
         try:
-            score = float(self.llm.invoke([HumanMessage(content=prompt)]).content.strip())
+            response_text = self.llm.invoke([HumanMessage(content=prompt)]).content.strip()
+            # Extract just the number if there's any other text
+            import re
+            if match := re.search(r'(\d+\.\d+)', response_text):
+                score = float(match.group(1))
+            else:
+                score = float(response_text)
+            
             self.logger.info(f"Hallucination score: {score}")
             return min(max(score, 0.0), 1.0)  # Ensure score is between 0 and 1
         except Exception as e:
-            self.logger.error(f"Failed to parse hallucination score, {str(e)}")
+            self.logger.error(f"Failed to parse hallucination score: {str(e)}")
             return 0.0
 
     def _format_documents(self, documents: List[Document], web_results: List[Dict] = None) -> str:
