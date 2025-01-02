@@ -32,7 +32,7 @@ class ConversationHistoryRepository(BaseRepository[ConversationHistory]):
                     session_id=session_id,
                     is_deleted=False
                 ) \
-                .order_by(ConversationHistory.created_at.desc()) \
+                .order_by(ConversationHistory.created_at.asc()) \
                 .limit(limit) \
                 .all()
             return [self._create_detached_copy(result) for result in results]
@@ -41,7 +41,7 @@ class ConversationHistoryRepository(BaseRepository[ConversationHistory]):
         with self.db_manager.session() as session:
             results = session.query(ConversationHistory) \
                 .filter_by(user_id=user_id) \
-                .order_by(ConversationHistory.created_at.asc()) \
+                .order_by(ConversationHistory.created_at.desc()) \
                 .limit(1) \
                 .all()
             return [self._create_detached_copy(result) for result in results]

@@ -147,27 +147,69 @@ class ResponseFormatter:
             logger.error(f"Error formatting chart: {str(e)}")
             return response
 
-    def _format_table(self, response: str, documents: List[Document]) -> str:
-        """Format response as a clean table"""
-        prompt = """Convert the following data into a well-structured table.
-        Use ASCII table format for compatibility.
+    def _format_table(self, response: str) -> str:
+        """Format tables in the response for better client-side rendering"""
         
-        DATA: {response}
-        
-        Guidelines:
-        1. Create clear column headers
-        2. Align data properly
-        3. Use appropriate separators
-        4. Maintain data relationships
-        5. Optimize for readability
-        
-        Format as a table:"""
+        prompt = """Format this response with proper table structure. If it contains tabular data:
+
+        1. For simple tables, use this JSON structure:
+        {
+            "type": "table",
+            "headers": ["Column1", "Column2", ...],
+            "rows": [
+                ["Row1Col1", "Row1Col2", ...],
+                ["Row2Col1", "Row2Col2", ...]
+            ],
+            "metadata": {
+                "title": "Optional Table Title",
+                "description": "Optional table description"
+            }
+        }
+
+        2. For complex tables (with merged cells or nested data), use this structure:
+        {
+            "type": "complexTable",
+            "data": [
+                {
+                    "key": "uniqueId1",
+                    "columns": {...},
+                    "children": [...]
+                }
+            ],
+            "columns": [
+                {
+                    "title": "Column1",
+                    "dataIndex": "col1",
+                    "key": "col1"
+                }
+            ]
+        }
+
+        3. For comparison tables:
+        {
+            "type": "comparisonTable",
+            "categories": ["Feature", "Option1", "Option2"],
+            "rows": [
+                ["Feature1", "Value1A", "Value1B"],
+                ["Feature2", "Value2A", "Value2B"]
+            ]
+        }
+
+        Convert any markdown or text tables in the response to this JSON format.
+        Keep non-table content as is.
+
+        Original response:
+        {response}
+
+        Return the response with tables in JSON format embedded in special tags:
+        <table-json>{...}</table-json>
+        """
 
         try:
-            formatted = self.llm.invoke([HumanMessage(content=prompt.format(response=response))]).content
-            return f"```\n{formatted}\n```"
+            formatted = self.llm.invoke([HumanMessage(content=prompt)]).content.strip()
+            return formatted
         except Exception as e:
-            logger.error(f"Error formatting table: {str(e)}")
+            self.logger.error(f"Table formatting failed: {str(e)}")
             return response
 
     def _format_code(self, response: str) -> str:
