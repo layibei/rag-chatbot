@@ -30,6 +30,8 @@ app:
     archive_path: "./data/archive"
     trunk_size: 2048
     overlap: 256
+    confluence:
+      url: https://akjamie.atlassian.net/
   query_agent:
     search:
       rerank_enabled: true

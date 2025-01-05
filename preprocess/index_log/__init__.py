@@ -12,8 +12,8 @@ class SourceType(str, PyEnum):
     TEXT = 'text'
     JSON = 'json'
     DOCX = 'docx'
-    WEB_PAGE = 'web_page'
-    IMAGE = 'image'
+    WEB_PAGE = "web_page"
+    CONFLUENCE = "confluence"
 
 
 class Status(str, PyEnum):

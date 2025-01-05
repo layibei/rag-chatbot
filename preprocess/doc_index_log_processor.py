@@ -6,7 +6,7 @@ from langchain_postgres import PGVector
 from langchain_redis import RedisVectorStore
 
 from config.common_settings import CommonConfig
-from preprocess.index_log import Status, IndexLog
+from preprocess.index_log import Status, IndexLog, SourceType
 from utils.logging_util import logger
 
 
@@ -31,54 +31,77 @@ class DocEmbeddingsProcessor:
 
     def add_index_log(self, source: str, source_type: str, user_id: str) -> dict:
         """Add a new document to the index log or update existing one"""
-        # Calculate checksum from source file
-        checksum = self._calculate_checksum(source)
+        self.logger.info(f"Adding document: {source}")
 
-        # First check by checksum
-        existing_log = self.index_log_helper.find_by_checksum(checksum)
-        if existing_log:
+        if source_type == SourceType.WEB_PAGE.value() or source_type == SourceType.CONFLUENCE.value():
+            # Create new log
+            new_log = self.index_log_helper.create(
+                source=source,
+                source_type=source_type,
+                checksum="To be generated",
+                status=Status.PENDING,
+                user_id=user_id
+            )
             return {
-                "message": "Document with same content already exists",
-                "source": existing_log.source,
-                "source_type": existing_log.source_type,
-                "id": existing_log.id
+                "message": "Document is queued for processing",
+                "id": new_log.id,
+                "source": source,
+                "source_type": source_type
             }
+        else:
 
-        # Then check by source path
-        existing_log = self.index_log_helper.find_by_source(source, source_type)
-        if existing_log:
-            # Content changed, update existing log
-            self._remove_existing_embeddings(source, source_type,existing_log.checksum)
-            existing_log.checksum = checksum
-            existing_log.status = Status.PENDING
-            existing_log.modified_at = datetime.now(UTC)
-            existing_log.modified_by = user_id
-            self.index_log_helper.save(existing_log)
+            # Calculate checksum from source file
+            checksum = self._calculate_checksum(source, source_type)
+
+            # First check by checksum
+            existing_log = self.index_log_helper.find_by_checksum(checksum)
+            if existing_log:
+                return {
+                    "message": "Document with same content already exists",
+                    "source": existing_log.source,
+                    "source_type": existing_log.source_type,
+                    "id": existing_log.id
+                }
+
+            # Then check by source path
+            existing_log = self.index_log_helper.find_by_source(source, source_type)
+            if existing_log:
+                # Content changed, update existing log
+                self._remove_existing_embeddings(source, source_type,existing_log.checksum)
+                existing_log.checksum = checksum
+                existing_log.status = Status.PENDING
+                existing_log.modified_at = datetime.now(UTC)
+                existing_log.modified_by = user_id
+                self.index_log_helper.save(existing_log)
+                return {
+                    "message": "Document updated and queued for processing",
+                    "id": existing_log.id,
+                    "source": source,
+                    "source_type": source_type
+                }
+
+            # Create new log
+            new_log = self.index_log_helper.create(
+                source=source,
+                source_type=source_type,
+                checksum=checksum,
+                status=Status.PENDING,
+                user_id=user_id
+            )
             return {
-                "message": "Document updated and queued for processing",
-                "id": existing_log.id,
+                "message": "Document is queued for processing",
+                "id": new_log.id,
                 "source": source,
                 "source_type": source_type
             }
 
-        # Create new log
-        new_log = self.index_log_helper.create(
-            source=source,
-            source_type=source_type,
-            checksum=checksum,
-            status=Status.PENDING,
-            user_id=user_id
-        )
-        return {
-            "message": "Document queued for processing",
-            "id": new_log.id,
-            "source": source,
-            "source_type": source_type
-        }
-
-    def _calculate_checksum(self, source: str) -> str:
+    def _calculate_checksum(self, source: str, source_type: str) -> str:
         """Calculate checksum for a document"""
         try:
+            if source_type == SourceType.WEB_PAGE.value() or source_type == SourceType.CONFLUENCE.value():
+                return "To be generated"
+
+            self.logger.info(f"Calculating checksum for file: {source}")
             with open(source, 'rb') as f:
                 return hashlib.sha256(f.read()).hexdigest()
         except Exception as e:

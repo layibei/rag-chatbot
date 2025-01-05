@@ -31,3 +31,6 @@ APScheduler==3.10.4
 requests==2.31.0
 python-multipart==0.0.7
 pymupdf==1.23.8
+
+beautifulsoup4>=4.12.2
+atlassian-python-api>=3.41.2

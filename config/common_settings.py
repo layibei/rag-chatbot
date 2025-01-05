@@ -85,10 +85,9 @@ class CommonConfig:
         """Get chat LLM model with proxy configuration"""
         try:
             self.check_config(self.config, ["app", "models", "chatllm", "type"],
-                             "ChatLLM model is not found")
+                              "ChatLLM model is not found")
             model_config = self.config["app"]["models"]["chatllm"]
             model_type = model_config.get("type")
-            
 
             if model_type == "gemini":
                 return ChatGoogleGenerativeAI(
@@ -101,9 +100,9 @@ class CommonConfig:
                     temperature=0.85,
                 )
             # Add other model types as needed...
-            
+
             raise RuntimeError(f"Unsupported chatllm model type: {model_type}")
-            
+
         except Exception as e:
             self.logger.error(f"Error initializing chat LLM: {str(e)}")
             raise
@@ -117,7 +116,6 @@ class CommonConfig:
         if self.config["app"]["models"]["rerank"].get("type") == "bge" and \
                 self.config["app"]["models"]["rerank"]["model"] is not None:
             return FlagReranker(self.config["app"]["models"]["rerank"].get("model"), use_fp16=True)
-
 
     def get_model(self, type):
         """Get model by type"""
@@ -138,17 +136,35 @@ class CommonConfig:
         else:
             raise ValueError("Invalid model type")
 
-    def get_embedding_config(self):
+    def get_embedding_config(self, key: str = None, default_value: Any = None) -> Any:
         self.logger.info(f"Embedding config: {self.config['app']['embedding']}")
         self.check_config(self.config, ["app", "embedding"], "app embedding is not found.")
         self.check_config(self.config, ["app", "embedding", "input_path"], "input path in app embedding is not found.")
-
-        return {
+        embedding_config = {
             "input_path": self.config["app"]["embedding"].get("input_path"),
             "staging_path": self.config["app"]["embedding"].get("staging_path"),
             "archive_path": self.config["app"]["embedding"].get("archive_path"),
-            "trunk_size": self.config["app"]["embedding"].get("trunk_size", 1024)
+            "trunk_size": self.config["app"]["embedding"].get("trunk_size", 1024),
+            "overlap": self.config["app"]["embedding"].get("overlap", 100),
+            "confluence": {
+                "url": self.config["app"]["embedding"].get("confluence", {}).get("url"),
+                "username": os.environ.get("CONFLUENCE_USERNAME"),
+                "api_key": os.environ.get("CONFLUENCE_API_KEY"),
+            }
         }
+
+        if key is None:
+            return embedding_config
+
+        # Handle nested key access
+        keys = key.split(".")
+        value = embedding_config
+        try:
+            for k in keys:
+                value = value[k]
+            return value
+        except (KeyError, TypeError):
+            return default_value
 
     @lru_cache(maxsize=128)
     def get_query_config(self, key: str = None, default_value: Any = None) -> Any:
@@ -168,9 +184,8 @@ class CommonConfig:
                 "top_k": query_agent_config.get("search", {}).get("top_k", 10),
                 "relevance_threshold": query_agent_config.get("search", {}).get("relevance_threshold", 0.7)
             },
-            "hallucination": {
-                "high_risk": query_agent_config.get("hallucination", {}).get("high_risk", 0.6),
-                "medium_risk": query_agent_config.get("hallucination", {}).get("medium_risk", 0.8)
+            "grading": {
+                "minimum_score": query_agent_config.get("grading", {}).get("minimum_score", 0.7),
             },
             "output": {
                 "generate_suggested_documents": query_agent_config.get("output", {}).get("generate_suggested_documents",
@@ -214,7 +229,7 @@ class CommonConfig:
         )
 
         return vector_store
-    
+
     def setup_proxy(self):
         """Setup proxy configuration"""
         try:
@@ -225,13 +240,13 @@ class CommonConfig:
                     "https_proxy": self.config["app"]["proxy"].get("https_proxy"),
                     "no_proxy": self.config["app"]["proxy"].get("no_proxy")
                 }
-                
+
                 # Set environment variables
                 for key, value in proxy_config.items():
                     if value:
                         os.environ[key] = value
                         os.environ[key.upper()] = value  # Some libraries use uppercase
-                
+
                 self.logger.info("Proxy configuration set successfully")
                 return True
             return False
@@ -266,7 +281,6 @@ class CommonConfig:
     def get_db_manager(self):
         return DatabaseManager(os.environ["POSTGRES_URI"])
 
-
     @staticmethod
     def load_yaml_file(file_path: str):
         try:
@@ -293,7 +307,7 @@ class CommonConfig:
             Dict of package log levels or specific level string
         """
         self.logger.debug(f"Getting logging config for package: {package_name}")
-        
+
         try:
             # Get logging config with default fallback
             logging_levels = self.config.get("app", {}).get("logging.level", {})
@@ -303,16 +317,16 @@ class CommonConfig:
                 # Find the most specific matching package path
                 matching_level = root_level
                 matching_length = 0
-                
+
                 for pkg_path, level in logging_levels.items():
                     if pkg_path != "root" and package_name.startswith(pkg_path):
                         path_length = len(pkg_path.split('.'))
                         if path_length > matching_length:
                             matching_level = level
                             matching_length = path_length
-                
+
                 return matching_level
-            
+
             return logging_levels
         except Exception as e:
             self.logger.error(f"Error getting logging config: {str(e)}")
@@ -326,9 +340,9 @@ class ConfigError(Exception):
 
 if __name__ == "__main__":
     config = CommonConfig()
-    #config.setup_proxy()
-    #llm = config.get_model("chatllm")
-    #logger.info(llm.invoke("What is the capital of France?"))
+    # config.setup_proxy()
+    # llm = config.get_model("chatllm")
+    # logger.info(llm.invoke("What is the capital of France?"))
 
     web_search_enabled = config.get_query_config("search.web_search_enabled")
     print(web_search_enabled)

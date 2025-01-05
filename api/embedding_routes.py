@@ -1,7 +1,7 @@
-import traceback
+from enum import Enum
 
 import dotenv
-from fastapi import APIRouter, HTTPException, Query, Header, UploadFile, File
+from fastapi import APIRouter, HTTPException, Query, Header, UploadFile, File, Form
 from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime
@@ -19,10 +19,20 @@ from urllib.parse import unquote
 from preprocess.index_log.repositories import IndexLogRepository
 from utils.logging_util import logger
 
+from preprocess.loader.loader_factories import DocumentLoaderFactory
+
 router = APIRouter(tags=['pre-process'])
 
 base_config = CommonConfig()
 STAGING_PATH = base_config.get_query_config("staging_path")
+
+URL_PATTERN = re.compile(
+    r'^https?://'  # http:// or https://
+    r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+[A-Z]{2,6}\.?|'  # domain...
+    r'localhost|'  # localhost...
+    r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})'  # ...or ip
+    r'(?::\d+)?'  # optional port
+    r'(?:/?|[/?]\S+)$', re.IGNORECASE)
 
 
 class EmbeddingRequest(BaseModel):
@@ -35,6 +45,11 @@ class EmbeddingResponse(BaseModel):
     source: str
     source_type: str
     id: Optional[str]
+
+class DocumentCategory(Enum):
+    FILE = "file"
+    WEB_PAGE = "web_page"
+    CONFLUENCE = "confluence"
 
 
 class IndexLogResponse(BaseModel):
@@ -53,7 +68,7 @@ class IndexLogResponse(BaseModel):
 @router.post("/docs", response_model=EmbeddingResponse)
 def add_document(
         request: EmbeddingRequest,
-        user_id: str = Header(..., alias="user-id")
+        x_user_id: str = Header(...)
 ):
     try:
         doc_processor = DocEmbeddingsProcessor(base_config.get_model("embedding"), base_config.get_vector_store(),
@@ -61,11 +76,11 @@ def add_document(
         result = doc_processor.add_index_log(
             source=request.source,
             source_type=request.source_type,
-            user_id=user_id
+            user_id=x_user_id
         )
         return result
     except Exception as e:
-        logger.error(f'Got error: {str(e)},stack trace:{traceback.format_exc()}')
+        logger.error(e)
         raise HTTPException(status_code=400, detail=str(e))
 
 
@@ -76,7 +91,7 @@ def get_document_by_id(log_id: str):
                                                IndexLogHelper(IndexLogRepository(base_config.get_db_manager())))
         return doc_processor.get_document_by_id(log_id)
     except ValueError as e:
-        logger.error(f'Got error: {str(e)},stack trace:{traceback.format_exc()}')
+        logger.error(e)
         raise HTTPException(status_code=404, detail=str(e))
 
 
@@ -121,7 +136,7 @@ def list_documents(
         )
         return logs
     except Exception as e:
-        logger.error(f'Got error: {str(e)},stack trace:{traceback.format_exc()}')
+        logger.error(e)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -149,59 +164,94 @@ def sanitize_filename(filename: str) -> str:
 
 @router.post("/docs/upload", response_model=EmbeddingResponse)
 def upload_document(
-    file: UploadFile = File(...),
-    source_type: SourceType = Query(...),
-    user_id: str = Header(..., alias="user-id")
+    category: DocumentCategory = Form(...),
+    file: Optional[UploadFile] = None,
+    url: Optional[str] = Form(None),
+    x_user_id: str = Header(...)
 ):
     try:
-        doc_processor = DocEmbeddingsProcessor(base_config.get_model("embedding"), base_config.get_vector_store(),
-                                               IndexLogHelper(IndexLogRepository(base_config.get_db_manager())))
-        # 1. Validate file extension matches source_type
-        file_extension = Path(file.filename).suffix.lower()
-        if not _is_valid_extension(file_extension[1:], source_type):  # Remove the dot
-            raise HTTPException(
-                status_code=400,
-                detail=f"File extension '{file_extension}' does not match source type '{source_type}'"
-            )
+        logger.info(f"Uploading document with category: {category}")
+        doc_processor = DocEmbeddingsProcessor(
+            base_config.get_model("embedding"),
+            base_config.get_vector_store(),
+            IndexLogHelper(IndexLogRepository(base_config.get_db_manager()))
+        )
 
-        # 2. Create staging directory if it doesn't exist
-        os.makedirs(STAGING_PATH, exist_ok=True)
-        
-        # 3. Generate staging file path with sanitized filename
-        safe_filename = sanitize_filename(file.filename)
-        staging_file_path = os.path.join(STAGING_PATH, safe_filename)
-        
-        # 4. Save file to staging
-        with open(staging_file_path, "wb") as buffer:
-            content = file.read()
-            buffer.write(content)
-        
-        # 5. Process the document
+
+        if category == DocumentCategory.FILE:
+            if not file:
+                logger.error("File is required when category is 'file'")
+                raise HTTPException(
+                    status_code=400,
+                    detail="File is required when category is 'file'"
+                )
+
+            # Infer source type from file extension
+            file_extension = Path(file.filename).suffix.lower()[1:]  # Remove the dot
+            source_type = DocumentLoaderFactory.infer_source_type(file_extension)
+            logger.info(f"Inferred source type: {source_type}")
+            
+            if not source_type:
+                logger.error(f"Unsupported file type: {file_extension}")
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Unsupported file type: {file_extension}"
+                )
+
+            # Create staging directory if it doesn't exist
+            staging_path = base_config.get_embedding_config()["staging_path"]
+            os.makedirs(staging_path, exist_ok=True)
+            
+            # Generate staging file path with sanitized filename
+            safe_filename = sanitize_filename(file.filename)
+            staging_file_path = os.path.join(staging_path, safe_filename)
+            
+            # Save file to staging
+            with open(staging_file_path, "wb") as buffer:
+                content = file.read()
+                buffer.write(content)
+
+            source = staging_file_path
+            source_type = source_type.value  # Convert enum to string
+
+        else:  # WEB_PAGE or CONFLUENCE
+            if not url:
+                logger.error("URL is required for web page or confluence documents")
+                raise HTTPException(
+                    status_code=400,
+                    detail="URL is required for web page or confluence documents"
+                )
+            # Add URL validation
+            if not URL_PATTERN.match(url):
+                logger.error(f"Invalid URL format: {url}")
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid URL format. URL must start with http:// or https://"
+                )
+            source = url
+            # Map category to source type
+            category_to_source_type = {
+                DocumentCategory.WEB_PAGE: SourceType.WEB_PAGE,
+                DocumentCategory.CONFLUENCE: SourceType.CONFLUENCE
+            }
+            source_type = category_to_source_type[category].value
+
+        # Process the document
         result = doc_processor.add_index_log(
-            source=staging_file_path,
+            source=source,
             source_type=source_type,
-            user_id=user_id
+            user_id=x_user_id
         )
         
         return result
         
     except Exception as e:
-        logger.error(f'Got error: {str(e)},stack trace:{traceback.format_exc()}')
+        logger.error(f"Error in upload_document: {str(e)}")
         # Clean up staging file if there's an error
         if 'staging_file_path' in locals() and os.path.exists(staging_file_path):
             os.remove(staging_file_path)
         raise HTTPException(status_code=500, detail=str(e))
 
-
-def _is_valid_extension(extension: str, source_type: SourceType) -> bool:
-    extension_mapping = {
-        SourceType.PDF: ['pdf'],
-        SourceType.DOCX: ['docx'],
-        SourceType.CSV: ['csv'],
-        SourceType.JSON: ['json'],
-        SourceType.TEXT: ['txt'],
-    }
-    return extension in extension_mapping.get(source_type, [])
 
 
 @router.delete("/docs/{log_id}")
@@ -210,7 +260,6 @@ def delete_document(
     x_user_id: str = Header(...)
 ):
     try:
-        logger.info(f"Deleting document with id {log_id}")
         doc_processor = DocEmbeddingsProcessor(
             base_config.get_model("embedding"), 
             base_config.get_vector_store(),
@@ -234,12 +283,9 @@ def delete_document(
         
         # 3. Delete index log
         doc_processor.index_log_helper.delete_by_id(log_id)
-
-        logger.info(f"Document {log_id} deleted successfully")
-
+        
         return {"message": f"Document {log_id} deleted successfully"}
         
     except Exception as e:
-        logger.error(f'Got error: {str(e)},stack trace:{traceback.format_exc()}')
-        # print stack trace
+        logger.error(e)
         raise HTTPException(status_code=500, detail=str(e))

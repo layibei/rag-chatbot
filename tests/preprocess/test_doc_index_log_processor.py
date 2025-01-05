@@ -159,15 +159,24 @@ def test_remove_existing_embeddings_pgvector(processor, mock_embeddings):
     pg_store = Mock()
     # Make the mock appear as PGVector
     pg_store.__class__ = PGVector
-    pg_store.similarity_search_by_vector = Mock(return_value=[
+    pg_store.similarity_search = Mock(return_value=[
         Document(page_content="test", metadata={"id": "doc1"})
     ])
     pg_store.delete = Mock()
     processor.vector_store = pg_store
     
-    processor._remove_existing_embeddings("test_source", "test_checksum")
+    processor._remove_existing_embeddings("test_source", "test_type", "test_checksum")
     
-    pg_store.similarity_search_by_vector.assert_called_once()
+    # Verify the correct method was called with appropriate parameters
+    pg_store.similarity_search.assert_called_once_with(
+        query="",
+        k=100,
+        filter={
+            "source": "test_source",
+            "source_type": "test_type",
+            "checksum": "test_checksum"
+        }
+    )
     pg_store.delete.assert_called_once_with(["doc1"])
 
 def test_remove_existing_embeddings_unsupported_store(processor):
