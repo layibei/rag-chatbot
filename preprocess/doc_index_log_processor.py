@@ -6,7 +6,7 @@ from langchain_postgres import PGVector
 from langchain_redis import RedisVectorStore
 
 from config.common_settings import CommonConfig
-from preprocess.index_log import Status
+from preprocess.index_log import Status, IndexLog
 from utils.logging_util import logger
 
 
@@ -48,7 +48,7 @@ class DocEmbeddingsProcessor:
         existing_log = self.index_log_helper.find_by_source(source, source_type)
         if existing_log:
             # Content changed, update existing log
-            self._remove_existing_embeddings(source, existing_log.checksum)
+            self._remove_existing_embeddings(source, source_type,existing_log.checksum)
             existing_log.checksum = checksum
             existing_log.status = Status.PENDING
             existing_log.modified_at = datetime.now(UTC)
@@ -85,11 +85,12 @@ class DocEmbeddingsProcessor:
             self.logger.error(f"Error calculating checksum for {source}: {str(e)}")
             raise
 
-    def _remove_existing_embeddings(self, source: str, checksum: str):
+    def _remove_existing_embeddings(self, source: str, source_type: str, checksum: str):
         """Remove existing document embeddings from vector store
 
         Args:
             source (str): The identifier of the document source
+            source_type (str): The type of the document source
             checksum (str): The checksum of the document, used to uniquely identify the document
         """
         docs = []  # Initialize docs before the conditional blocks
@@ -98,22 +99,19 @@ class DocEmbeddingsProcessor:
         if isinstance(self.vector_store, RedisVectorStore):
             docs = self.vector_store.search_by_metadata({
                 "source": source,
+                "source_type": source_type,
                 "checksum": checksum
             })
         elif isinstance(self.vector_store, PGVector):
-            # Create a filter condition for metadata
-            filter = {
-                "metadata": {
+            # For PGVector, use the collection's metadata filtering
+            docs = self.vector_store.similarity_search(
+                query="",  # Empty query since we only care about metadata
+                k=100,  # Adjust based on expected max documents
+                filter={
                     "source": source,
+                    "source_type": source_type,
                     "checksum": checksum
                 }
-            }
-            # Use a dummy vector since we only care about metadata
-            dummy_vector = [0.0] * self.embeddings.dimension
-            docs = self.vector_store.similarity_search_by_vector(
-                embedding=dummy_vector,
-                k=100,  # Adjust based on expected max documents
-                filter=filter
             )
         else:
             self.logger.warning(f"Unsupported vector store type: {type(self.vector_store)}")
@@ -123,7 +121,8 @@ class DocEmbeddingsProcessor:
             self.vector_store.delete([doc.metadata["id"] for doc in docs])
 
 
-    def get_document_by_id(self, log_id):
+    def get_document_by_id(self, log_id) -> IndexLog:
         """Get document by ID"""
         log = self.index_log_helper.find_by_id(log_id)
+        self.logger.info(f"Found document with id {log_id}: {log}")
         return log

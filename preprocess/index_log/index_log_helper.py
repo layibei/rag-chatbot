@@ -77,9 +77,9 @@ class IndexLogHelper:
             self.logger.error('Error while creating index log')
             raise e
 
-    def list_logs(self, page: int, page_size: int, search: Optional[str] = None) -> List[IndexLog]:
+    def list_logs(self, page: int, page_size: int, filters: dict = None) -> List[IndexLog]:
         try:
-            return self.repository.list_logs(page, page_size, search)
+            return self.repository.find_all(page, page_size, filters)
         except SQLAlchemyError as e:
             self.logger.error('Error while listing logs')
             raise e
@@ -92,3 +92,14 @@ class IndexLogHelper:
                 'modified_at_lt': stalled_time
             }
         )
+
+    def delete_by_id(self, log_id: str):
+        """Delete index log by id"""
+        if not log_id:
+            return None
+        try:
+            self.repository.delete_by_filter(id=log_id)
+            self.logger.info(f'Index log deleted for id {log_id}')
+        except SQLAlchemyError as e:
+            self.logger.error(f'Error while deleting index log for id {log_id}')
+            raise e

@@ -252,7 +252,7 @@ class DocEmbeddingJob:
         existing_log = self.index_log_helper.find_by_source(source, source_type)
         if existing_log:
             # Content changed, update existing log
-            self._remove_existing_embeddings(source, existing_log.checksum)
+            self._remove_existing_embeddings(source, source_type,existing_log.checksum)
             existing_log.checksum = checksum
             existing_log.status = Status.PENDING
             existing_log.modified_at = datetime.now(UTC)
@@ -289,10 +289,11 @@ class DocEmbeddingJob:
             self.logger.error(f"Error calculating checksum for {source}: {str(e)}")
             raise
 
-    def _remove_existing_embeddings(self, source: str, checksum: str):
+    def _remove_existing_embeddings(self, source: str, source_type: str, checksum: str):
         """Remove existing document embeddings from vector store"""
         docs = self.vector_store.search_by_metadata({
             "source": source,
+            "source_type": source_type,
             "checksum": checksum
         })
         if docs:

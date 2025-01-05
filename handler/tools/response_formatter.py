@@ -150,59 +150,48 @@ class ResponseFormatter:
     def _format_table(self, response: str) -> str:
         """Format tables in the response for better client-side rendering"""
         
-        prompt = """Format this response with proper table structure. If it contains tabular data:
+        prompt = """Analyze and convert any tabular data in this response into a structured JSON format.
 
-        1. For simple tables, use this JSON structure:
+        RULES:
+        1. DETECT TABLE PATTERNS:
+           - Markdown tables (|---|---|)
+           - Lists that compare items
+           - Property-value pairs
+           - Structured comparisons
+           - Version or feature matrices
+
+        2. TABLE STRUCTURE:
         {
             "type": "table",
-            "headers": ["Column1", "Column2", ...],
-            "rows": [
-                ["Row1Col1", "Row1Col2", ...],
-                ["Row2Col1", "Row2Col2", ...]
-            ],
-            "metadata": {
-                "title": "Optional Table Title",
-                "description": "Optional table description"
+            "data": {
+                "headers": ["Column1", "Column2"],
+                "rows": [
+                    ["Value1", "Value2"],
+                    ["Value3", "Value4"]
+                ],
+                "title": "Optional title",
+                "description": "Optional description"
             }
         }
 
-        2. For complex tables (with merged cells or nested data), use this structure:
-        {
-            "type": "complexTable",
-            "data": [
-                {
-                    "key": "uniqueId1",
-                    "columns": {...},
-                    "children": [...]
-                }
-            ],
-            "columns": [
-                {
-                    "title": "Column1",
-                    "dataIndex": "col1",
-                    "key": "col1"
-                }
-            ]
-        }
+        3. FORMATTING RULES:
+           - Keep headers concise and clear
+           - Ensure data alignment in rows
+           - Preserve numerical precision
+           - Maintain data relationships
+           - Remove redundant information
 
-        3. For comparison tables:
-        {
-            "type": "comparisonTable",
-            "categories": ["Feature", "Option1", "Option2"],
-            "rows": [
-                ["Feature1", "Value1A", "Value1B"],
-                ["Feature2", "Value2A", "Value2B"]
-            ]
-        }
-
-        Convert any markdown or text tables in the response to this JSON format.
-        Keep non-table content as is.
+        4. TEXT HANDLING:
+           - Keep non-table text unchanged
+           - Preserve text before and after tables
+           - Maintain paragraph breaks
 
         Original response:
         {response}
 
-        Return the response with tables in JSON format embedded in special tags:
-        <table-json>{...}</table-json>
+        Return format:
+        - For sections with tables: <table>{json}</table>
+        - For regular text: keep as is
         """
 
         try:

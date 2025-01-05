@@ -1,3 +1,5 @@
+import traceback
+
 import dotenv
 from fastapi import APIRouter, HTTPException, Query, Header, UploadFile, File
 from pydantic import BaseModel
@@ -15,6 +17,7 @@ import re
 from urllib.parse import unquote
 
 from preprocess.index_log.repositories import IndexLogRepository
+from utils.logging_util import logger
 
 router = APIRouter(tags=['pre-process'])
 
@@ -39,6 +42,7 @@ class IndexLogResponse(BaseModel):
     source: str
     source_type: str
     status: str
+    checksum: str
     created_at: datetime
     created_by: str
     modified_at: datetime
@@ -61,6 +65,7 @@ def add_document(
         )
         return result
     except Exception as e:
+        logger.error(f'Got error: {str(e)},stack trace:{traceback.format_exc()}')
         raise HTTPException(status_code=400, detail=str(e))
 
 
@@ -71,25 +76,52 @@ def get_document_by_id(log_id: str):
                                                IndexLogHelper(IndexLogRepository(base_config.get_db_manager())))
         return doc_processor.get_document_by_id(log_id)
     except ValueError as e:
+        logger.error(f'Got error: {str(e)},stack trace:{traceback.format_exc()}')
         raise HTTPException(status_code=404, detail=str(e))
 
 
 @router.get("/docs", response_model=List[IndexLogResponse])
 def list_documents(
-        page: int = Query(1, gt=0),
-        page_size: int = Query(10, gt=0),
-        search: Optional[str] = None
+    page: int = Query(1, gt=0),
+    page_size: int = Query(10, gt=0),
+    source: Optional[str] = None,
+    source_type: Optional[SourceType] = None,
+    status: Optional[str] = None,
+    created_by: Optional[str] = Query(None, alias="createdBy"),
+    from_date: Optional[datetime] = Query(None, alias="fromDate"),
+    to_date: Optional[datetime] = Query(None, alias="toDate")
 ):
     try:
-        doc_processor = DocEmbeddingsProcessor(base_config.get_model("embedding"), base_config.get_vector_store(),
-                                               IndexLogHelper(IndexLogRepository(base_config.get_db_manager())))
+        doc_processor = DocEmbeddingsProcessor(
+            base_config.get_model("embedding"), 
+            base_config.get_vector_store(),
+            IndexLogHelper(IndexLogRepository(base_config.get_db_manager()))
+        )
+        
+        # Build filter conditions
+        filters = {}
+        if source:
+            filters['source'] = source
+        if source_type:
+            filters['source_type'] = source_type
+        if status:
+            filters['status'] = status.upper()
+        if created_by:
+            filters['created_by'] = created_by
+        if from_date:
+            filters['created_at_from'] = from_date
+        if to_date:
+            filters['created_at_to'] = to_date
+        logger.info(f"Search by filters: {filters}")
+
         logs = doc_processor.index_log_helper.list_logs(
             page=page,
             page_size=page_size,
-            search=search
+            filters=filters
         )
         return logs
     except Exception as e:
+        logger.error(f'Got error: {str(e)},stack trace:{traceback.format_exc()}')
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -154,6 +186,7 @@ def upload_document(
         return result
         
     except Exception as e:
+        logger.error(f'Got error: {str(e)},stack trace:{traceback.format_exc()}')
         # Clean up staging file if there's an error
         if 'staging_file_path' in locals() and os.path.exists(staging_file_path):
             os.remove(staging_file_path)
@@ -169,3 +202,44 @@ def _is_valid_extension(extension: str, source_type: SourceType) -> bool:
         SourceType.TEXT: ['txt'],
     }
     return extension in extension_mapping.get(source_type, [])
+
+
+@router.delete("/docs/{log_id}")
+def delete_document(
+    log_id: str,
+    x_user_id: str = Header(...)
+):
+    try:
+        logger.info(f"Deleting document with id {log_id}")
+        doc_processor = DocEmbeddingsProcessor(
+            base_config.get_model("embedding"), 
+            base_config.get_vector_store(),
+            IndexLogHelper(IndexLogRepository(base_config.get_db_manager()))
+        )
+        
+        # 1. Check if document exists
+        index_log = doc_processor.get_document_by_id(log_id)
+        if not index_log:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Document with id {log_id} not found"
+            )
+            
+        # 2. Remove embedded chunks from vector store
+        doc_processor._remove_existing_embeddings(
+            source=index_log.source,
+            source_type=index_log.source_type,
+            checksum=index_log.checksum
+        )
+        
+        # 3. Delete index log
+        doc_processor.index_log_helper.delete_by_id(log_id)
+
+        logger.info(f"Document {log_id} deleted successfully")
+
+        return {"message": f"Document {log_id} deleted successfully"}
+        
+    except Exception as e:
+        logger.error(f'Got error: {str(e)},stack trace:{traceback.format_exc()}')
+        # print stack trace
+        raise HTTPException(status_code=500, detail=str(e))

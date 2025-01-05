@@ -3,6 +3,7 @@ from typing import Optional, List
 
 from sqlalchemy import and_, or_
 from sqlalchemy.sql import select
+from sqlalchemy.exc import SQLAlchemyError, DatabaseError
 
 from config.database.repository import BaseRepository
 from preprocess.index_log import IndexLog, Status
@@ -69,7 +70,10 @@ class IndexLogRepository(BaseRepository[IndexLog]):
 
     def find_by_id(self, log_id: str) -> Optional[IndexLog]:
         result = self.find_by_filter(id=log_id)
-        return result
+        if not result or len(result) < 1:
+            return None
+
+        return result[0]
 
     def create(self, source: str, source_type: str, checksum: str, status: Status, user_id: str) -> IndexLog:
         with self.db_manager.session() as session:
@@ -100,22 +104,6 @@ class IndexLogRepository(BaseRepository[IndexLog]):
                         return self._create_detached_copy(existing)
                 raise
 
-    def list_logs(self, page: int, page_size: int, search: Optional[str] = None) -> List[IndexLog]:
-        with self.db_manager.session() as session:
-            query = session.query(self.model_class)
-
-            if search:
-                search_pattern = f"%{search}%"
-                query = query.filter(
-                    or_(
-                        self.model_class.source.ilike(search_pattern),
-                        self.model_class.created_by.ilike(search_pattern),
-                        self.model_class.modified_by.ilike(search_pattern)
-                    )
-                )
-
-            results = query.offset((page - 1) * page_size).limit(page_size).all()
-            return [self._create_detached_copy(result) for result in results]
 
     def _create_detached_copy(self, db_obj: Optional[IndexLog]) -> Optional[IndexLog]:
         if not db_obj:
@@ -134,19 +122,50 @@ class IndexLogRepository(BaseRepository[IndexLog]):
             error_message=db_obj.error_message
         )
 
-    def find_all(self, filters: dict):
-        query = select(IndexLog)
+    def find_all(self, page: int = 1, page_size: int = 10, filters: dict = None) -> List[IndexLog]:
+        """
+        Find all index logs with pagination and filtering support
         
-        if 'status' in filters:
-            query = query.where(IndexLog.status == filters['status'])
-        
-        if 'modified_at_lt' in filters:
-            query = query.where(IndexLog.modified_at < filters['modified_at_lt'])
-            
+        Args:
+            page: Page number (1-based)
+            page_size: Number of items per page
+            filters: Dictionary of filter conditions
+                Supported filters:
+                - source: str (case-insensitive partial match)
+                - source_type: SourceType
+                - status: str
+                - created_by: str (case-insensitive partial match)
+                - created_at_from: datetime
+                - created_at_to: datetime
+        """
         with self.db_manager.session() as session:
-            result = session.execute(query)
-            results = result.scalars().all()
-            return [self._create_detached_copy(result) for result in results]
+            try:
+                query = session.query(IndexLog)
+
+                if filters:
+                    if filters.get('source'):
+                        query = query.filter(IndexLog.source.ilike(f'%{filters["source"]}%'))
+                    if filters.get('source_type'):
+                        query = query.filter(IndexLog.source_type == filters['source_type'])
+                    if filters.get('status'):
+                        query = query.filter(IndexLog.status == filters['status'])
+                    if filters.get('created_by'):
+                        query = query.filter(IndexLog.created_by.ilike(f'%{filters["created_by"]}%'))
+                    if filters.get('created_at_from'):
+                        query = query.filter(IndexLog.created_at >= filters['created_at_from'])
+                    if filters.get('created_at_to'):
+                        query = query.filter(IndexLog.created_at <= filters['created_at_to'])
+
+                # Apply pagination
+                offset = (page - 1) * page_size
+                query = query.offset(offset).limit(page_size)
+                results = query.all()
+
+                return [self._create_detached_copy(result) for result in results]
+
+            except SQLAlchemyError as e:
+                self.logger.error(f'Error while finding all index logs: {str(e)}')
+                raise DatabaseError(f"Database error: {str(e)}")
 
     def query(self):
         """Create a new query object for the model class."""

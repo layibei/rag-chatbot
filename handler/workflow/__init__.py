@@ -16,8 +16,7 @@ class RequestState(TypedDict):
     response: Any
     documents: list[Document]
     web_results: Union[list[Document], list[Dict]]
-    hallucination_risk: str
-    confidence_score: float
+    response_grade: float
     output_format: str
 
     suggested_questions: list[str] = []

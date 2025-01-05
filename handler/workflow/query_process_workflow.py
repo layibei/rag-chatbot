@@ -15,9 +15,9 @@ from langgraph.checkpoint.memory import MemorySaver
 
 from config.common_settings import CommonConfig
 from handler.tools.document_retriever import DocumentRetriever
-from handler.tools.hallucination_detector import HallucinationDetector
 from handler.tools.query_rewriter import QueryRewriter
 from handler.tools.response_formatter import ResponseFormatter
+from handler.tools.response_grader import ResponseGrader
 from handler.tools.web_search_tool import WebSearch
 from handler.workflow import RequestState
 from utils.logging_util import logger
@@ -63,7 +63,7 @@ class QueryProcessWorkflow:
         self.doc_retriever = DocumentRetriever(llm, vectorstore, config)
         self.response_formatter = ResponseFormatter(llm, config)
         self.query_rewriter = QueryRewriter(llm)
-        self.hallucination_detector = HallucinationDetector(llm, config)
+        self.response_grader = ResponseGrader(llm, config)
 
         self.graph = self._setup_graph()
         self.max_retries = config.get_query_config("search.max_retries", 1);
@@ -77,9 +77,8 @@ class QueryProcessWorkflow:
         workflow.add_node("web_search", self._web_search)
         workflow.add_node("rewrite_query", self._rewrite_query)
         workflow.add_node("generate_response", self._generate_response)
-        workflow.add_node("detect_hallucination", self._detect_hallucination)
+        workflow.add_node("grade_response", self._grade_response)
         workflow.add_node("format_response", self._format_response)
-        workflow.add_node("enhance_response", self._enhance_response)
         workflow.add_node("generate_suggested_questions", self._generate_suggested_questions)
         workflow.add_node("generate_citations", self._generate_citations)
 
@@ -110,19 +109,17 @@ class QueryProcessWorkflow:
         workflow.add_edge("rewrite_query", "retrieve_documents")
 
         # Response generation and verification flow
-        workflow.add_edge("generate_response", "detect_hallucination")
+        workflow.add_edge("generate_response", "grade_response")
 
         workflow.add_conditional_edges(
-            "detect_hallucination",
-            self._handle_hallucination,
+            "grade_response",
+            self._generate_response,
             {
                 "rewrite": "rewrite_query",
-                "enhance": "enhance_response",
                 "generate_suggested_questions": "generate_suggested_questions"
             }
         )
 
-        workflow.add_edge("enhance_response", "generate_suggested_questions")
         workflow.add_edge("generate_suggested_questions", "generate_citations")
         workflow.add_edge("generate_citations", "format_response")
 
@@ -257,15 +254,17 @@ class QueryProcessWorkflow:
         state["response"] = response
         return state
 
-    def _detect_hallucination(self, state: RequestState) -> RequestState:
-        """Check for potential hallucinations"""
-        self.logger.info("Checking for potential hallucinations")
-        result = self.hallucination_detector.run(state)
+    def _grade_response(self, state: RequestState) -> RequestState:
+        """Grade response relevance and completeness"""
+        self.logger.info("Grading response relevance and completeness")
+        score = self.response_grader.run(state)
+        state["response_grade"] = score
 
-        state["confidence_score"] = result.get("confidence_score", 0.0)
-        state["hallucination_risk"] = result.get("hallucination_risk", "")
+        if score < self.config.get_query_config("grading.minimum_score", 0.7):
+            self.logger.debug(f"Response grade is below minimum score, attempting rewrite,score:{score}")
+            return "rewrite"
 
-        return state
+        return "generate_suggested_questions"
 
     def _format_response(self, state: RequestState) -> RequestState:
         """Format the final response"""
@@ -276,64 +275,6 @@ class QueryProcessWorkflow:
         state['output_format'] = result.get("output_format", "")
         return state
 
-    def _enhance_response(self, state: RequestState) -> RequestState:
-        """Enhance response quality for medium/high risk responses"""
-        try:
-            response = state.get("response", "")
-            documents = state.get("documents", state.get("web_result", ""))
-            query = state.get("rewritten_query", "")
-
-            prompt = f"""As a senior software engineer, make this response more concise and user-friendly.
-
-            Original Question: "{query}"
-
-            Current Response: {response}
-
-            Available Sources:
-            {self._format_documents(documents)}
-
-            ENHANCEMENT RULES:
-
-            1. LENGTH CHECK
-               - Can this be answered in fewer words?
-               - Is every word necessary?
-               - Remove all non-essential information
-
-            2. DIRECTNESS CHECK
-               - Is the main answer in the first sentence?
-               - Remove any delayed answers
-               - Cut all "nice to know" information
-
-            3. CLARITY CHECK
-               - Is it immediately understandable?
-               - Remove all complex explanations
-               - Simplify technical language
-
-            4. VALUE CHECK
-               - Does every sentence add value?
-               - Remove decorative language
-               - Cut redundant information
-
-            REMEMBER:
-            - Shorter is better
-            - Direct is better
-            - Simple is better
-            - Clear is better
-
-            If you see:
-            - Multiple sentences → Try one
-            - Paragraphs → Try bullets
-            - Technical terms → Try simpler words
-            - Background info → Remove it
-
-            Enhanced response:"""
-
-            enhanced = self.llm.invoke([HumanMessage(content=prompt)]).content
-            state["response"] = enhanced
-            return state
-        except Exception as e:
-            self.logger.error(f"Error enhancing response: {str(e)}")
-            return state
 
     def _format_documents(self, documents: List[Document]) -> str:
         """Format documents for verification"""
@@ -362,20 +303,6 @@ class QueryProcessWorkflow:
         self.logger.info("Proceeding to generate response")
         return "generate"
 
-    def _handle_hallucination(self, state: RequestState) -> str:
-        """Handle detected hallucinations"""
-        self.logger.info("Handling potential hallucination")
-
-        if state.get("hallucination_risk") in ["MEDIUM", "HIGH"]:
-            rewrite_attempts = state.get("rewrite_attempts", 0)
-            if rewrite_attempts >= self.max_retries:
-                self.logger.debug(
-                    f"Maximum rewrites reached, attempting enhancement,rewrite_attempts:{rewrite_attempts}")
-                return "enhance"
-            self.logger.debug(f"Attempting query rewrite due to hallucination risk,rewrite_attempts:{rewrite_attempts}")
-            return "rewrite"
-
-        return "generate_suggested_questions"
 
     def _generate_suggested_questions(self, state: RequestState) -> RequestState:
         """Generate contextually relevant follow-up questions"""

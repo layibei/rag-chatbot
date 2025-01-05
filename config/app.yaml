@@ -38,9 +38,8 @@ app:
       top_k: 10 # for retrieval top n documents, equal to max_documents
       relevance_threshold: 8.5 # for filter out low relevance documents
       query_rewrite_enabled: true
-    hallucination: # for fact checking, the lower of the score, the higher risk of hallucination
-      high_risk: 0.6
-      medium_risk: 0.8
+    grading: # for fact checking, the lower of the score, the higher risk of hallucination
+      minimum_score: 0.7
     output:
       generate_suggested_documents: true
       generate_citations: true
