@@ -26,8 +26,11 @@ class LoggingContextMiddleware(BaseHTTPMiddleware):
         session_id = request.headers.get('X-Session-Id')
         request_id = request.headers.get('X-Request-Id')
         
-        # For all endpoints, generate missing IDs
-        if not session_id or len(session_id.strip()) == 0:
+        # Check if this is a chat completion request
+        is_chat_completion = request.url.path.endswith('/chat/completion')
+        
+        # Generate session_id if missing and it's a chat completion request
+        if (not session_id or len(session_id.strip()) == 0) and is_chat_completion:
             session_id = f"sess_{get_id().lower()}"
             # Modify request headers
             request.headers._list.append(
@@ -35,7 +38,8 @@ class LoggingContextMiddleware(BaseHTTPMiddleware):
             )
             logger.debug(f"Generated new session_id: {session_id}")
         
-        if not request_id or len(request_id.strip()) == 0:
+        # Generate request_id if missing and it's a chat completion request
+        if (not request_id or len(request_id.strip()) == 0) and is_chat_completion:
             request_id = f"req_{get_id().lower()}"
             # Modify request headers
             request.headers._list.append(
@@ -55,10 +59,13 @@ class LoggingContextMiddleware(BaseHTTPMiddleware):
 
         try:
             response = await call_next(request)
-            # Add the session ID to response headers
-            response.headers['X-Session-Id'] = session_id
-            response.headers['X-Request-Id'] = request_id
-            response.headers['X-User-Id'] = user_id
+            # Add IDs to response headers only if they exist
+            if session_id:
+                response.headers['X-Session-Id'] = session_id
+            if request_id:
+                response.headers['X-Request-Id'] = request_id
+            if user_id:
+                response.headers['X-User-Id'] = user_id
             return response
         finally:
             clear_context()
@@ -104,7 +111,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # Allow all origins, adjust as needed
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["*"],  # Allow all headers, adjust as needed
     expose_headers=["X-Session-Id", "X-Request-Id", "X-User-Id"],
 )

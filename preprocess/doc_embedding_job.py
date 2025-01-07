@@ -1,3 +1,6 @@
+import json
+import traceback
+
 import dotenv
 from apscheduler.schedulers.background import BackgroundScheduler
 from datetime import datetime, UTC, timedelta
@@ -6,7 +9,7 @@ from config.database.database_manager import DatabaseManager
 from preprocess.index_log.index_log_helper import IndexLogHelper
 from preprocess.index_log.repositories import IndexLogRepository
 from utils.lock.distributed_lock_helper import DistributedLockHelper
-from preprocess.index_log import Status
+from preprocess.index_log import Status, SourceType
 from preprocess.loader.loader_factories import DocumentLoaderFactory
 from utils.lock.repositories import DistributedLockRepository
 from utils.logging_util import logger
@@ -27,19 +30,19 @@ class DocEmbeddingJob:
         self.index_log_helper = None
         self.distributed_lock_helper = None
         self.scheduler = None
-        
+
     async def initialize(self):
         """Async initialization of components"""
         try:
             self.embeddings = self.config.get_model("embedding")
             self.vector_store = self.config.get_vector_store()
-            
+
             index_log_repo = IndexLogRepository(self.config.get_db_manager())
             self.index_log_helper = IndexLogHelper(index_log_repo)
             self.distributed_lock_helper = DistributedLockHelper(
                 DistributedLockRepository(self.config.get_db_manager())
             )
-            
+
             self.scheduler = BackgroundScheduler()
             self.setup_scheduler()
             self.logger.info("DocEmbeddingJob initialized successfully")
@@ -101,18 +104,18 @@ class DocEmbeddingJob:
                     # Process document
                     self._process_document(log)
 
-                    # Move file to archive folder
-                    archive_path = self.config.get_embedding_config()["archive_path"]
-                    os.makedirs(archive_path, exist_ok=True)
+                    if SourceType(log.source_type).is_file_based():
+                        # Move file to archive folder
+                        archive_path = self.config.get_embedding_config()["archive_path"]
+                        os.makedirs(archive_path, exist_ok=True)
 
-                    source_file = Path(log.source)
-                    archive_file = Path(archive_path) / source_file.name
+                        source_file = Path(log.source)
+                        archive_file = Path(archive_path) / source_file.name
 
-                    # Move the file
-                    shutil.move(str(source_file), str(archive_file))
-
-                    # Update source path in log
-                    log.source = str(archive_file)
+                        # Move the file
+                        shutil.move(str(source_file), str(archive_file))
+                        # Update source path in log
+                        log.source = str(archive_file)
 
                     # Update status to COMPLETED
                     log.status = Status.COMPLETED
@@ -170,8 +173,11 @@ class DocEmbeddingJob:
                         staging_path = self.config.get_embedding_config()["staging_path"]
 
                         # if the file has been indexed
-                        if (existing_log.source == os.path.join(staging_path, file_name) or existing_log.source == os.path.join(archive_path, file_name)) and existing_log.source_type == source_type:
-                            self.logger.info(f"Document has already been indexed: {file_name}, index_log_id: {existing_log.id}")
+                        if (existing_log.source == os.path.join(staging_path,
+                                                                file_name) or existing_log.source == os.path.join(
+                                archive_path, file_name)) and existing_log.source_type == source_type:
+                            self.logger.info(
+                                f"Document has already been indexed: {file_name}, index_log_id: {existing_log.id}")
                             continue
                         else:
                             # move file to staging folder
@@ -187,7 +193,8 @@ class DocEmbeddingJob:
                             existing_log.modified_at = datetime.now(UTC)
                             existing_log.modified_by = "system"
                             self.index_log_helper.save(existing_log)
-                            self.logger.info(f"Updated source information for existing document: {file_name}, index_log_id: {existing_log.id}")
+                            self.logger.info(
+                                f"Updated source information for existing document: {file_name}, index_log_id: {existing_log.id}")
                             continue
 
                     # Create new index log
@@ -217,7 +224,7 @@ class DocEmbeddingJob:
         try:
             stalled_time = datetime.now(UTC) - timedelta(minutes=5)
             logs = self.index_log_helper.get_stalled_index_logs(stalled_time)
-            
+
             if not logs:
                 return
 
@@ -242,7 +249,6 @@ class DocEmbeddingJob:
             self.logger.error(f"Error calculating checksum for {source}: {str(e)}")
             raise
 
-
     def add_index_log(self, source: str, source_type: str, user_id: str) -> dict:
         """Add a new document to the index log or update existing one"""
         # Calculate checksum from source file
@@ -252,7 +258,7 @@ class DocEmbeddingJob:
         existing_log = self.index_log_helper.find_by_source(source, source_type)
         if existing_log:
             # Content changed, update existing log
-            self._remove_existing_embeddings(source, source_type,existing_log.checksum)
+            self._remove_existing_embeddings(source, source_type, existing_log.checksum)
             existing_log.checksum = checksum
             existing_log.status = Status.PENDING
             existing_log.modified_at = datetime.now(UTC)
@@ -319,6 +325,11 @@ class DocEmbeddingJob:
             # Load document
             documents = loader.load(log.source)
 
+            # generate checksum if its source type is web_page or confluence
+            if log.source_type == SourceType.WEB_PAGE.value or log.source_type == SourceType.CONFLUENCE.value:
+                log.checksum = self._calculate_checksum_for_url(log, documents)
+                self.index_log_helper.save(log)
+
             # Add metadata
             for doc in documents:
                 doc.metadata.update({
@@ -334,5 +345,25 @@ class DocEmbeddingJob:
             log.error_message = None
 
         except Exception as e:
-            self.logger.error(f"Error processing document: {str(e)}")
+            self.logger.error(f"Error processing document: {str(e)}, stack:{traceback.format_exc()}")
             raise e
+
+    def _calculate_checksum_for_url(self, log, documents) -> str:
+        self.logger.info("Calculating checksum for URL")
+        if log.source_type == SourceType.WEB_PAGE.value:
+            return hashlib.sha256(documents[0].page_content.encode('utf-8')).hexdigest()
+        elif log.source_type == SourceType.CONFLUENCE.value:
+            all_docs = []
+            for doc in documents:
+                doc_info = {
+                    'content': doc.page_content,
+                    'metadata': doc.metadata
+                }
+                all_docs.append(doc_info)
+
+            all_docs.sort(key=lambda x: (
+                x['metadata'].get('title', ''),
+                x['metadata'].get('page_number', 0)
+            ))
+            combined_content = json.dumps(all_docs, sort_keys=True)
+            return hashlib.sha256(combined_content.encode()).hexdigest()

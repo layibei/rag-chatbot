@@ -1,3 +1,4 @@
+import traceback
 from enum import Enum
 
 import dotenv
@@ -163,24 +164,21 @@ def sanitize_filename(filename: str) -> str:
 
 
 @router.post("/docs/upload", response_model=EmbeddingResponse)
-def upload_document(
+async def upload_document(
     category: DocumentCategory = Form(...),
     file: Optional[UploadFile] = None,
     url: Optional[str] = Form(None),
     x_user_id: str = Header(...)
 ):
     try:
-        logger.info(f"Uploading document with category: {category}")
         doc_processor = DocEmbeddingsProcessor(
             base_config.get_model("embedding"),
             base_config.get_vector_store(),
             IndexLogHelper(IndexLogRepository(base_config.get_db_manager()))
         )
 
-
         if category == DocumentCategory.FILE:
             if not file:
-                logger.error("File is required when category is 'file'")
                 raise HTTPException(
                     status_code=400,
                     detail="File is required when category is 'file'"
@@ -189,10 +187,8 @@ def upload_document(
             # Infer source type from file extension
             file_extension = Path(file.filename).suffix.lower()[1:]  # Remove the dot
             source_type = DocumentLoaderFactory.infer_source_type(file_extension)
-            logger.info(f"Inferred source type: {source_type}")
             
             if not source_type:
-                logger.error(f"Unsupported file type: {file_extension}")
                 raise HTTPException(
                     status_code=400,
                     detail=f"Unsupported file type: {file_extension}"
@@ -206,9 +202,9 @@ def upload_document(
             safe_filename = sanitize_filename(file.filename)
             staging_file_path = os.path.join(staging_path, safe_filename)
             
-            # Save file to staging
+            # Save file to staging using async read
+            content = await file.read()
             with open(staging_file_path, "wb") as buffer:
-                content = file.read()
                 buffer.write(content)
 
             source = staging_file_path
@@ -216,14 +212,12 @@ def upload_document(
 
         else:  # WEB_PAGE or CONFLUENCE
             if not url:
-                logger.error("URL is required for web page or confluence documents")
                 raise HTTPException(
                     status_code=400,
                     detail="URL is required for web page or confluence documents"
                 )
             # Add URL validation
             if not URL_PATTERN.match(url):
-                logger.error(f"Invalid URL format: {url}")
                 raise HTTPException(
                     status_code=400,
                     detail="Invalid URL format. URL must start with http:// or https://"
@@ -246,7 +240,7 @@ def upload_document(
         return result
         
     except Exception as e:
-        logger.error(f"Error in upload_document: {str(e)}")
+        logger.error(f"Error in upload_document: {str(e)}, stack_trace:{traceback.format_exc()}")
         # Clean up staging file if there's an error
         if 'staging_file_path' in locals() and os.path.exists(staging_file_path):
             os.remove(staging_file_path)

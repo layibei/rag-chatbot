@@ -15,6 +15,9 @@ class SourceType(str, PyEnum):
     WEB_PAGE = "web_page"
     CONFLUENCE = "confluence"
 
+    def is_file_based(self) -> bool:
+        return self in [SourceType.PDF, SourceType.CSV, SourceType.TEXT, SourceType.JSON, SourceType.DOCX]
+
 
 class Status(str, PyEnum):
     PENDING = 'PENDING'

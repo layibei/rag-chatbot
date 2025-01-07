@@ -148,7 +148,7 @@ class CommonConfig:
             "overlap": self.config["app"]["embedding"].get("overlap", 100),
             "confluence": {
                 "url": self.config["app"]["embedding"].get("confluence", {}).get("url"),
-                "username": os.environ.get("CONFLUENCE_USERNAME"),
+                "username": os.environ.get("CONFLUENCE_USER_NAME"),
                 "api_key": os.environ.get("CONFLUENCE_API_KEY"),
             }
         }

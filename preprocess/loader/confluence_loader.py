@@ -13,6 +13,7 @@ class ConfluenceLoader(DocumentLoader):
     def load(self, url: str) -> List[Document]:
         """Override default load method to handle Confluence URLs"""
         try:
+            self.logger.info(f"Loading Confluence page: {url}")
             loader = self.get_loader(url)
             if not loader:
                 self.logger.error(f"Failed to create loader for Confluence URL: {url}")
@@ -20,6 +21,7 @@ class ConfluenceLoader(DocumentLoader):
             
             # Extract page ID from URL
             page_id = self._extract_page_id(url)
+            self.logger.info(f"Extracted page id:{page_id} from {url}.")
             if not page_id:
                 raise ValueError(f"Could not extract page ID from URL: {url}")
             
@@ -73,15 +75,28 @@ class ConfluenceLoader(DocumentLoader):
             if 'viewpage.action' in parsed.path and 'pageId' in parsed.query:
                 return parse_qs(parsed.query)['pageId'][0]
             
-            # 3. Check for display/SPACE/Page+Title format
+            # 3. Check for wiki/spaces format (Cloud)
+            if '/wiki/spaces/' in parsed.path:
+                path_segments = parsed.path.split('/')
+                try:
+                    # Find the 'pages' index and get the next segment
+                    pages_index = path_segments.index('pages')
+                    if len(path_segments) > pages_index + 1:
+                        page_id = path_segments[pages_index + 1]
+                        if page_id.isdigit():
+                            return page_id
+                except ValueError:
+                    pass
+
+            # 4. Check for display/SPACE/Page+Title format
             if '/display/' in parsed.path:
                 # Use the Confluence API to look up page by title
                 space_key = parsed.path.split('/display/')[1].split('/')[0]
                 page_title = parsed.path.split('/')[-1].replace('+', ' ')
                 
-                confluence_url = self.base_config.get_query_config("confluence.url")
-                username = self.base_config.get_query_config("confluence.username")
-                api_key = self.base_config.get_query_config("confluence.api_key")
+                confluence_url = self.base_config.get_embedding_config("confluence.url")
+                username = self.base_config.get_embedding_config("confluence.username")
+                api_key = self.base_config.get_embedding_config("confluence.api_key")
                 
                 # Use Confluence REST API to get page ID by title
                 api_url = f"{confluence_url}/rest/api/content"
@@ -100,12 +115,12 @@ class ConfluenceLoader(DocumentLoader):
                     if results:
                         return results[0]['id']
                     
-            # 4. Check numeric ID at end of path
+            # 5. Check numeric ID at end of path
             path_parts = parsed.path.split('/')
             if path_parts[-1].isdigit():
                 return path_parts[-1]
             
-            # 5. Check for pages/{pageId} format
+            # 6. Check for pages/{pageId} format
             if '/pages/' in parsed.path:
                 page_segment = parsed.path.split('/pages/')[-1]
                 if '/' in page_segment:

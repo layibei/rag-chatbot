@@ -33,7 +33,7 @@ class DocEmbeddingsProcessor:
         """Add a new document to the index log or update existing one"""
         self.logger.info(f"Adding document: {source}")
 
-        if source_type == SourceType.WEB_PAGE.value() or source_type == SourceType.CONFLUENCE.value():
+        if source_type == SourceType.WEB_PAGE.value or source_type == SourceType.CONFLUENCE.value:
             # Create new log
             new_log = self.index_log_helper.create(
                 source=source,
@@ -98,7 +98,7 @@ class DocEmbeddingsProcessor:
     def _calculate_checksum(self, source: str, source_type: str) -> str:
         """Calculate checksum for a document"""
         try:
-            if source_type == SourceType.WEB_PAGE.value() or source_type == SourceType.CONFLUENCE.value():
+            if source_type == SourceType.WEB_PAGE.value or source_type == SourceType.CONFLUENCE.value:
                 return "To be generated"
 
             self.logger.info(f"Calculating checksum for file: {source}")
