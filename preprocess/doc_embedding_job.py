@@ -115,7 +115,7 @@ class DocEmbeddingJob:
                         # Move the file
                         shutil.move(str(source_file), str(archive_file))
                         # Update source path in log
-                        log.source = str(archive_file)
+                        log.source = str(archive_file).replace('\\', '/')
 
                     # Update status to COMPLETED
                     log.status = Status.COMPLETED
@@ -175,7 +175,7 @@ class DocEmbeddingJob:
                         # if the file has been indexed
                         if (existing_log.source == os.path.join(staging_path,
                                                                 file_name) or existing_log.source == os.path.join(
-                                archive_path, file_name)) and existing_log.source_type == source_type:
+                            archive_path, file_name)) and existing_log.source_type == source_type:
                             self.logger.info(
                                 f"Document has already been indexed: {file_name}, index_log_id: {existing_log.id}")
                             continue
@@ -330,10 +330,20 @@ class DocEmbeddingJob:
                 log.checksum = self._calculate_checksum_for_url(log, documents)
                 self.index_log_helper.save(log)
 
+            # Initialize archive_file as None
+            archive_file = None
+            
+            # calc archive path for file-based documents
+            if not (log.source_type == SourceType.WEB_PAGE.value or log.source_type == SourceType.CONFLUENCE.value):
+                archive_path = self.config.get_embedding_config()["archive_path"]
+                os.makedirs(archive_path, exist_ok=True)
+                source_file = Path(log.source)
+                archive_file = str(Path(archive_path) / source_file.name).replace('\\', '/')
+
             # Add metadata
             for doc in documents:
                 doc.metadata.update({
-                    "source": log.source,
+                    "source": archive_file if archive_file is not None else log.source,
                     "source_type": log.source_type,
                     "checksum": log.checksum
                 })
@@ -343,7 +353,6 @@ class DocEmbeddingJob:
 
             # Clear error message on success
             log.error_message = None
-
         except Exception as e:
             self.logger.error(f"Error processing document: {str(e)}, stack:{traceback.format_exc()}")
             raise e

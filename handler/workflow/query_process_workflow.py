@@ -254,7 +254,7 @@ class QueryProcessWorkflow:
         state["response"] = response
         return state
 
-    def _grade_response(self, state: RequestState) -> RequestState:
+    def _grade_response(self, state: RequestState) -> str:
         """Grade response relevance and completeness"""
         self.logger.info("Grading response relevance and completeness")
         score = self.response_grader.run(state)

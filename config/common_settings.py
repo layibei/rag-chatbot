@@ -12,6 +12,7 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_ollama import OllamaLLM, ChatOllama
 from langchain_postgres import PGVector
 from FlagEmbedding import FlagReranker
+from langchain_qdrant import QdrantVectorStore
 
 from config.database.database_manager import DatabaseManager
 from utils.logger_init import logger
@@ -221,11 +222,18 @@ class CommonConfig:
         # )
         # vector_store = RedisVectorStore(self.get_model("embedding"), config=config)
 
-        vector_store = PGVector(
-            embeddings=self.get_model("embedding"),
+        # vector_store = PGVector(
+        #     embeddings=self.get_model("embedding"),
+        #     collection_name="rag_docs",
+        #     connection=os.environ["POSTGRES_URI"],
+        #     use_jsonb=True,
+        # )
+        vector_store = QdrantVectorStore.from_documents(
+            documents=[],
+            embedding=self.get_model("embedding"),
             collection_name="rag_docs",
-            connection=os.environ["POSTGRES_URI"],
-            use_jsonb=True,
+            url=os.environ["QDRANT_URL"],
+            api_key=os.environ["QDRANT_API_KEY"],
         )
 
         return vector_store

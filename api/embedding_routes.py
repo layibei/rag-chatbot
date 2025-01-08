@@ -9,7 +9,7 @@ from datetime import datetime
 
 from config.common_settings import CommonConfig
 from preprocess.index_log import SourceType
-from preprocess.doc_index_log_processor import DocEmbeddingsProcessor
+from preprocess.doc_index_log_processor import DocEmbeddingsProcessor, DocumentChunk, ChunkListResponse
 import os
 from pathlib import Path
 
@@ -73,7 +73,7 @@ def add_document(
 ):
     try:
         doc_processor = DocEmbeddingsProcessor(base_config.get_model("embedding"), base_config.get_vector_store(),
-                                               IndexLogHelper(IndexLogRepository(base_config.get_db_manager())))
+                                               IndexLogHelper(IndexLogRepository(base_config.get_db_manager())), base_config)
         result = doc_processor.add_index_log(
             source=request.source,
             source_type=request.source_type,
@@ -89,7 +89,7 @@ def add_document(
 def get_document_by_id(log_id: str):
     try:
         doc_processor = DocEmbeddingsProcessor(base_config.get_model("embedding"), base_config.get_vector_store(),
-                                               IndexLogHelper(IndexLogRepository(base_config.get_db_manager())))
+                                               IndexLogHelper(IndexLogRepository(base_config.get_db_manager())), base_config)
         return doc_processor.get_document_by_id(log_id)
     except ValueError as e:
         logger.error(e)
@@ -103,15 +103,15 @@ def list_documents(
     source: Optional[str] = None,
     source_type: Optional[SourceType] = None,
     status: Optional[str] = None,
-    created_by: Optional[str] = Query(None, alias="createdBy"),
-    from_date: Optional[datetime] = Query(None, alias="fromDate"),
-    to_date: Optional[datetime] = Query(None, alias="toDate")
+    created_by: Optional[str] = Query(None),
+    from_date: Optional[datetime] = Query(None),
+    to_date: Optional[datetime] = Query(None)
 ):
     try:
         doc_processor = DocEmbeddingsProcessor(
             base_config.get_model("embedding"), 
             base_config.get_vector_store(),
-            IndexLogHelper(IndexLogRepository(base_config.get_db_manager()))
+            IndexLogHelper(IndexLogRepository(base_config.get_db_manager())), base_config
         )
         
         # Build filter conditions
@@ -137,7 +137,7 @@ def list_documents(
         )
         return logs
     except Exception as e:
-        logger.error(e)
+        logger.error(f'Error:{traceback.format_exc()}')
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -174,7 +174,7 @@ async def upload_document(
         doc_processor = DocEmbeddingsProcessor(
             base_config.get_model("embedding"),
             base_config.get_vector_store(),
-            IndexLogHelper(IndexLogRepository(base_config.get_db_manager()))
+            IndexLogHelper(IndexLogRepository(base_config.get_db_manager())), base_config
         )
 
         if category == DocumentCategory.FILE:
@@ -257,7 +257,7 @@ def delete_document(
         doc_processor = DocEmbeddingsProcessor(
             base_config.get_model("embedding"), 
             base_config.get_vector_store(),
-            IndexLogHelper(IndexLogRepository(base_config.get_db_manager()))
+            IndexLogHelper(IndexLogRepository(base_config.get_db_manager()), base_config)
         )
         
         # 1. Check if document exists
@@ -283,3 +283,40 @@ def delete_document(
     except Exception as e:
         logger.error(e)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/docs/{log_id}/chunks", response_model=ChunkListResponse)
+def get_document_chunks(
+    log_id: str,
+    page: int = Query(1, gt=0),
+    page_size: int = Query(10, gt=0),
+    x_user_id: str = Header(...)
+):
+    try:
+        doc_processor = DocEmbeddingsProcessor(
+            base_config.get_model("embedding"),
+            base_config.get_vector_store(),
+            IndexLogHelper(IndexLogRepository(base_config.get_db_manager())), base_config
+        )
+        
+        return doc_processor.get_document_chunks(
+            log_id=log_id,
+            page=page,
+            page_size=page_size
+        )
+
+    except ValueError as e:
+        logger.error(f"Error retrieving document chunks: {str(e)}")
+        raise HTTPException(
+            status_code=404,
+            detail=str(e)
+        )
+    except Exception as e:
+        logger.error(f"Error retrieving document chunks: {str(e)}\nStacktrace:\n{traceback.format_exc()}")
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error_message": str(e),
+                "error_code": "INTERNAL_SERVER_ERROR"
+            }
+        )
