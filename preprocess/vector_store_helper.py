@@ -1,7 +1,7 @@
 from langchain_core.vectorstores import VectorStore
 from langchain_postgres import PGVector
+from langchain_qdrant import QdrantVectorStore
 from langchain_redis import RedisVectorStore
-from langchain_community.vectorstores import QdrantVectorStore
 
 
 class VectorStoreHelper:

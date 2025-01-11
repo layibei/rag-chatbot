@@ -9,6 +9,7 @@ from sqlalchemy import text
 
 from config.common_settings import CommonConfig
 from preprocess.index_log import Status, IndexLog, SourceType
+from preprocess.vector_store_helper import VectorStoreHelper
 from utils.logging_util import logger
 
 
@@ -32,6 +33,7 @@ class DocEmbeddingsProcessor:
         self.vector_store = vector_store
         self.index_log_helper = index_log_helper
         self.config = config
+        self.vector_store_helper = VectorStoreHelper(vector_store)
 
     def _get_source_type(self, extension: str) -> Optional[str]:
         """Map file extension to source type"""
@@ -131,32 +133,7 @@ class DocEmbeddingsProcessor:
             source_type (str): The type of the document source
             checksum (str): The checksum of the document, used to uniquely identify the document
         """
-        docs = []  # Initialize docs before the conditional blocks
-        
-        # Search for document embeddings that match the source and checksum in the vector store
-        if isinstance(self.vector_store, RedisVectorStore):
-            docs = self.vector_store.search_by_metadata({
-                "source": source,
-                "source_type": source_type,
-                "checksum": checksum
-            })
-        elif isinstance(self.vector_store, PGVector):
-            # For PGVector, use the collection's metadata filtering
-            docs = self.vector_store.similarity_search(
-                query="",  # Empty query since we only care about metadata
-                k=100,  # Adjust based on expected max documents
-                filter={
-                    "source": source,
-                    "source_type": source_type,
-                    "checksum": checksum
-                }
-            )
-        else:
-            self.logger.warning(f"Unsupported vector store type: {type(self.vector_store)}")
-
-        # If matching document embeddings are found, delete them from the vector store
-        if docs:
-            self.vector_store.delete([doc.metadata["id"] for doc in docs])
+        self.vector_store_helper.remove_existing_embeddings(source, source_type, checksum)
 
 
     def get_document_by_id(self, log_id) -> IndexLog:

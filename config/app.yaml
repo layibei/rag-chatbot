@@ -34,11 +34,11 @@ app:
       url: https://akjamie.atlassian.net/
   query_agent:
     search:
-      rerank_enabled: true
-      web_search_enabled: true
+      rerank_enabled: false
+      web_search_enabled: false
       max_retries: 1 # max retry for query rewrite
       top_k: 10 # for retrieval top n documents, equal to max_documents
-      relevance_threshold: 8.5 # for filter out low relevance documents
+      relevance_threshold: 0.75 # for filter out low relevance documents
       query_rewrite_enabled: true
     grading: # for fact checking, the lower of the score, the higher risk of hallucination
       minimum_score: 0.7

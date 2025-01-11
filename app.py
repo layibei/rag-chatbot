@@ -27,21 +27,25 @@ class LoggingContextMiddleware(BaseHTTPMiddleware):
         request_id = request.headers.get('X-Request-Id')
         
         # Check if this is a chat completion request
-        is_chat_completion = request.url.path.endswith('/chat/completion')
+        is_chat_completion = request.url.path.endswith('chat/completion')
         
-        # Generate session_id if missing and it's a chat completion request
-        if (not session_id or len(session_id.strip()) == 0) and is_chat_completion:
+        # Generate session_id if missing or empty for chat completion requests
+        if (not session_id or session_id.strip() == "") and is_chat_completion:
             session_id = f"sess_{get_id().lower()}"
-            # Modify request headers
+            # Remove existing empty header if present
+            request.headers._list = [(k, v) for k, v in request.headers._list if k != b'x-session-id']
+            # Add new header
             request.headers._list.append(
                 (b'x-session-id', session_id.encode())
             )
             logger.debug(f"Generated new session_id: {session_id}")
         
-        # Generate request_id if missing and it's a chat completion request
-        if (not request_id or len(request_id.strip()) == 0) and is_chat_completion:
+        # Generate request_id if missing or empty for chat completion requests
+        if (not request_id or request_id.strip() == "") and is_chat_completion:
             request_id = f"req_{get_id().lower()}"
-            # Modify request headers
+            # Remove existing empty header if present
+            request.headers._list = [(k, v) for k, v in request.headers._list if k != b'x-request-id']
+            # Add new header
             request.headers._list.append(
                 (b'x-request-id', request_id.encode())
             )

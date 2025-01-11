@@ -1,6 +1,7 @@
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from sqlalchemy import func
 from datetime import datetime, UTC
+from sqlalchemy.sql import text
 
 from config.database.repository import BaseRepository
 from conversation import ConversationHistory, ChatSession
@@ -66,44 +67,50 @@ class ConversationHistoryRepository(BaseRepository[ConversationHistory]):
         )
     
     def get_session_list(self, user_id: str) -> List[ChatSession]:
-        with self.db_manager.session() as session:
-            # Subquery to get the earliest message for each non-deleted session
-            earliest_messages = (
-                session.query(
-                    ConversationHistory.session_id,
-                    func.min(ConversationHistory.created_at).label('first_message_time')
-                )
-                .filter(
-                    ConversationHistory.user_id == user_id,
-                    ConversationHistory.is_deleted == False
-                )
-                .group_by(ConversationHistory.session_id)
-                .subquery()
-            )
-            # Join with the main table to get the user_input for these earliest messages
-            results = (
-                session.query(
-                    ConversationHistory.session_id,
-                    ConversationHistory.user_input
-                )
-                .join(
-                    earliest_messages,
-                    (ConversationHistory.session_id == earliest_messages.c.session_id) &
-                    (ConversationHistory.created_at == earliest_messages.c.first_message_time)
-                )
-                .filter(
-                    ConversationHistory.user_id == user_id,
-                    ConversationHistory.is_deleted == False
-                )
-                .all()
-            )
-            return [
-                ChatSession(
-                    session_id=result.session_id,
-                    title=result.user_input
-                )
-                for result in results
-            ]
+        """Get list of chat sessions for a user, with first message as title, sorted by modified_at desc"""
+        try:
+            with self.db_manager.session() as session:
+                query = text("""
+                    WITH first_messages AS (
+                        SELECT 
+                            session_id,
+                            user_input as first_message,
+                            created_at,
+                            ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY created_at ASC) as rn
+                        FROM conversation_history
+                        WHERE user_id = :user_id AND is_deleted = false
+                    ),
+                    latest_modified AS (
+                        SELECT 
+                            session_id,
+                            MAX(modified_at) as latest_modified_at
+                        FROM conversation_history
+                        WHERE user_id = :user_id AND is_deleted = false
+                        GROUP BY session_id
+                    )
+                    SELECT 
+                        fm.session_id,
+                        fm.first_message as title,
+                        lm.latest_modified_at
+                    FROM first_messages fm
+                    JOIN latest_modified lm ON fm.session_id = lm.session_id
+                    WHERE fm.rn = 1
+                    ORDER BY lm.latest_modified_at DESC
+                """)
+                
+                result = session.execute(query, {"user_id": user_id})
+                
+                return [
+                    ChatSession(
+                        session_id=row.session_id,
+                        title=row.title
+                    )
+                    for row in result
+                ]
+
+        except Exception as e:
+            self.logger.error(f"Error getting session list: {str(e)}")
+            raise
 
     def update_message_like(self, 
                            user_id: str, 

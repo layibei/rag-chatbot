@@ -85,6 +85,7 @@ class DocEmbeddingJob:
         """Process one pending document at a time with distributed lock"""
         self.logger.info("Processing pending documents")
         if not self.distributed_lock_helper.acquire_lock("process_pending_documents"):
+            self.logger.info("Failed to acquire lock, some other pod is processing the job.")
             return
 
         try:
@@ -92,8 +93,10 @@ class DocEmbeddingJob:
             if not logs:
                 self.logger.info("No pending documents found")
                 return
+            self.logger.info(f"Found {len(logs)} pending documents")
 
             for log in logs:
+                self.logger.info(f"Processing document: {log.source_type}:{log.source}")
                 try:
                     # Update status to IN_PROGRESS
                     log.status = Status.IN_PROGRESS
@@ -319,6 +322,7 @@ class DocEmbeddingJob:
     def _process_document(self, log):
         """Process a single document"""
         try:
+            self.logger.info(f"Processing document: {log.source_type}:{log.source}")
             # Get appropriate loader
             loader = DocumentLoaderFactory.get_loader(log.source_type)
 
@@ -358,7 +362,7 @@ class DocEmbeddingJob:
             raise e
 
     def _calculate_checksum_for_url(self, log, documents) -> str:
-        self.logger.info("Calculating checksum for URL")
+        self.logger.info(f"Calculating checksum for URL,{log.source_type}:{log.source}")
         if log.source_type == SourceType.WEB_PAGE.value:
             return hashlib.sha256(documents[0].page_content.encode('utf-8')).hexdigest()
         elif log.source_type == SourceType.CONFLUENCE.value:

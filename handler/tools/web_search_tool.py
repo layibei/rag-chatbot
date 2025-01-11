@@ -9,9 +9,14 @@ class WebSearch:
     def __init__(self, config: CommonConfig):
         self.logger = logger
         self.config = config
-        self.web_search_tool = TavilySearchResults(
-            k=config.get_query_config("limits.max_web_results", 3)
-        )
+
+        if config.get_query_config("search.web_search_enabled", False):
+            self.logger.info("Web search is enabled")
+            self.web_search_tool = TavilySearchResults(
+                k=config.get_query_config("limits.max_web_results", 3)
+            )
+        else:
+            self.logger.info("Web search is disabled")
 
     def run(self, query: str) -> List[Dict[str, Any]]:
         """
@@ -29,6 +34,10 @@ class WebSearch:
         try:
             # search use original query, without much chat histories added
             self.logger.info(f"Running web search for query: {query}")
+
+            if not self.config.get_query_config("search.web_search_enabled", False):
+                self.logger.info("Web search is disabled")
+                return []
             results = self.web_search_tool.invoke(query)
             
             if not results:

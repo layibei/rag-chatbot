@@ -28,6 +28,7 @@ class ResponseFormatter:
             response = state.get("response", "")
             documents = state.get("documents", state.get("web_results", []))
             user_input = state.get("rewritten_query", state.get("user_input", ""))
+            self.logger.info(f"Formatting the generation:{response}")
 
             if not response:
                 return state
@@ -40,12 +41,10 @@ class ResponseFormatter:
                 "chart": self._format_chart,
                 "table": self._format_table,
                 "code": self._format_code,
-                "markdown": lambda r, d: self._format_markdown(r, d)
-            }[output_format](response, documents)
+                "markdown": self._format_markdown,
+                "text": self._format_text,
+            }[output_format](response)
 
-            # # Add sources if available
-            # if documents:
-            #     formatted_response = self._add_sources(formatted_response, documents, output_format)
 
             return {
                 "response": formatted_response,
@@ -59,9 +58,13 @@ class ResponseFormatter:
                 "output_format": "markdown"
             }
 
+    def _format_text(self, response: str):
+        self.logger.info(f"Detected format: text for response")
+        return response.strip()
+
     def _detect_output_format(self, response: str, user_input: str) -> OutputFormat:
         """Use LLM to intelligently detect the most appropriate output format"""
-        prompt = """As a format detection expert, analyze this content and determine the optimal output format.
+        prompt = """As a format detection AI expert, analyze this content and determine the optimal output format.
         Choose from: chart, table, markdown, or code.
         
         USER QUERY: {user_input}
@@ -95,14 +98,17 @@ class ResponseFormatter:
            - Needs formatting for readability
            - Contains mixed content types
            Examples: technical documentation, step-by-step guides
+        5. Plain TEXT:
+            if None of above is matched, then default as TEXT.
 
         INSTRUCTIONS:
         1. Analyze both the user query and the content
         2. Consider the primary purpose of the information
         3. Choose the format that best serves the information's purpose
-        4. Return ONLY ONE of: chart, table, markdown, code
+        4. Return ONLY ONE of: chart, table, markdown, code, text
+        5. Avoid any content adjustment and only do the formatting
 
-        RETURN FORMAT: Single word response (chart/table/markdown/code)"""
+        RETURN FORMAT: Single word response (chart/table/markdown/code/text)"""
 
         try:
             format_response = self.llm.invoke(
@@ -113,7 +119,7 @@ class ResponseFormatter:
             ).content.strip().lower()
 
             # Validate and return format
-            if format_response in ["chart", "table", "markdown", "code"]:
+            if format_response in ["chart", "table", "markdown", "code", "text"]:
                 logger.debug(f"Detected format: {format_response} for response")
                 return format_response
             
@@ -212,30 +218,9 @@ class ResponseFormatter:
 
         return formatted
 
-    # def _add_sources(self, response: str, documents: List[Document], format_type: OutputFormat) -> str:
-    #     """Add source citations based on format type"""
-    #     sources = []
-    #     for i, doc in enumerate(documents, 1):
-    #         source = doc.metadata.get('source', 'Unknown source')
-    #         page = doc.metadata.get('page', '')
-    #         citation = f"[{i}] {source}" + (f" (page {page})" if page else "")
-    #         sources.append(citation)
-    #
-    #     if not sources:
-    #         return response
-    #
-    #     if format_type == "markdown":
-    #         return response + "\n\n---\n**Sources:**\n" + "\n".join(sources)
-    #     elif format_type == "chat":
-    #         return response + "\n\nℹ️ Sources:\n" + "\n".join(sources)
-    #     elif format_type in ["table", "code"]:
-    #         return response + "\n\nSources:\n" + "\n".join(sources)
-    #     else:
-    #         return response + "\n\nSources:\n" + "\n".join(sources)
-
-    def _format_markdown(self, response: str, documents: List[Document]) -> str:
+    def _format_markdown(self, response: str) -> str:
         """Format the response with proper markdown syntax"""
-        prompt = self._create_formatting_prompt(response, documents)
+        prompt = self._create_formatting_prompt(response)
 
         try:
             formatted = self.llm.invoke([HumanMessage(content=prompt)]).content
@@ -244,7 +229,7 @@ class ResponseFormatter:
             logger.error(f"Error in markdown formatting: {str(e)}")
             return response
 
-    def _create_formatting_prompt(self, response: str, documents: List[Document]) -> str:
+    def _create_formatting_prompt(self, response: str) -> str:
         """Create a prompt for the LLM to format the response"""
         return f"""Format the following response in clear markdown, including:
             - Proper headings

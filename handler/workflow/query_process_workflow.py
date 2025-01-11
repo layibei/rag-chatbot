@@ -21,6 +21,7 @@ from handler.tools.response_grader import ResponseGrader
 from handler.tools.web_search_tool import WebSearch
 from handler.workflow import RequestState
 from utils.logging_util import logger
+from prompts.constants import PromptManager, PromptTemplate
 
 
 @dataclass
@@ -32,7 +33,8 @@ class Citation:
 
 @dataclass
 class QueryResponse:
-    def __init__(self, answer: str, citations: List[str] = None, suggested_questions: List[str] = None, metadata: Dict = None):
+    def __init__(self, answer: str, citations: List[str] = None, suggested_questions: List[str] = None,
+                 metadata: Dict = None):
         self.answer = answer
         self.citations = citations or []
         self.suggested_questions = suggested_questions or []
@@ -57,16 +59,20 @@ class QueryProcessWorkflow:
         self.logger = logger
         self.llm = llm
         self.config = config
-
+        
+        # Initialize prompt manager
+        self.prompt_manager = PromptManager()
+        
         # Initialize tools
         self.web_search = WebSearch(config)
         self.doc_retriever = DocumentRetriever(llm, vectorstore, config)
         self.response_formatter = ResponseFormatter(llm, config)
         self.query_rewriter = QueryRewriter(llm)
         self.response_grader = ResponseGrader(llm, config)
-
+        
         self.graph = self._setup_graph()
-        self.max_retries = config.get_query_config("search.max_retries", 1);
+        self.max_retries = config.get_query_config("search.max_retries", 1)
+        self.fallback_response = "Sorry, i dont have sufficient information to answer your question."
 
     def _setup_graph(self) -> StateGraph:
         memory = MemorySaver()
@@ -113,7 +119,7 @@ class QueryProcessWorkflow:
 
         workflow.add_conditional_edges(
             "grade_response",
-            self._generate_response,
+            self._should_continue_after_grade_response,
             {
                 "rewrite": "rewrite_query",
                 "generate_suggested_questions": "generate_suggested_questions"
@@ -144,7 +150,7 @@ class QueryProcessWorkflow:
 
                 return "rewrite"
 
-        self.logger.info("Documents found, proceeding to generate response")
+        self.logger.info(f"{len(documents)} documents were found, proceeding to generate response")
         return "generate"
 
     def _rewrite_query(self, state: RequestState) -> RequestState:
@@ -196,7 +202,7 @@ class QueryProcessWorkflow:
         return state
 
     def _generate_response(self, state: RequestState) -> RequestState:
-        """Generate comprehensive response based on available sources"""
+        """Generate response strictly based on available sources"""
         query = state["rewritten_query"]
         documents = state.get("documents", [])
         web_results = state.get("web_results", [])
@@ -207,74 +213,72 @@ class QueryProcessWorkflow:
         if web_results:
             sources.extend([f"Web Result: {result}" for result in web_results])
 
-        prompt = f"""You are a senior software engineer providing expert answers. Your goal is to give the most satisfying answer with the least words necessary.
+        self.logger.info(f"Generating response for query: {query}")
 
-        User Question: "{query}"
+        if not sources and state.get("rewrite_attempts", 0) >= self.max_retries:
+            self.logger.info("No documents found and query rewrite attempts exceeded, returning fallback response")
+            state["response"] = self.fallback_response
+            state["fallback_response"] = True
+            return state
 
-        Sources:
-        {chr(10).join(sources)}
-
-        RESPONSE RULES:
-
-        1. ANSWER TYPE DETECTION
-           Simple fact question (version, date, name):
-             → Give ONLY the direct answer in one sentence
-           How-to question:
-             → Give step-by-step instructions
-           Comparison question:
-             → List key differences briefly
-           Explanation question:
-             → Give concise explanation with examples
-
-        2. RESPONSE LENGTH
-           - For simple facts: One sentence
-           - For how-to: 3-5 steps maximum
-           - For comparisons: 2-3 key points
-           - For explanations: 2-3 short paragraphs
-
-        3. MUST FOLLOW
-           - Start with the direct answer
-           - Add context ONLY if crucial
-           - No source references
-           - No unnecessary background
-           - No extra information
-
-        4. ABSOLUTELY AVOID
-           - Long explanations
-           - Historical context
-           - Future predictions
-           - Alternative options
-           - Unnecessary details
-
-        Remember: The best answer is the shortest one that fully satisfies the user's question.
-
-        Your response:"""
-
-        response = self.llm.invoke([HumanMessage(content=prompt)]).content
-        state["response"] = response
+        try:
+            # Get and format prompt using PromptManager
+            prompt = self.prompt_manager.format_prompt(
+                PromptTemplate.GENERATE_RESPONSE,
+                query=query,
+                sources="\n\n".join(sources)
+            )
+            
+            response = self.llm.invoke([HumanMessage(content=prompt)]).content
+            state["response"] = response
+            
+        except Exception as e:
+            self.logger.error(f"Error generating response: {str(e)}")
+            state["response"] = self.fallback_response
+            state["fallback_response"] = True
+            
         return state
 
     def _grade_response(self, state: RequestState) -> str:
         """Grade response relevance and completeness"""
         self.logger.info("Grading response relevance and completeness")
-        score = self.response_grader.run(state)
-        state["response_grade"] = score
+        if self._is_fallback_response(state):
+            self.logger.debug("Fallback response detected, returning empty response")
+            return state
 
-        if score < self.config.get_query_config("grading.minimum_score", 0.7):
-            self.logger.debug(f"Response grade is below minimum score, attempting rewrite,score:{score}")
+        score = self.response_grader.run(state)
+        state["response_grade_score"] = score
+
+        return state;
+
+    def _is_fallback_response(self, state: RequestState) -> bool:
+        """Check if fallback response is needed"""
+        return state.get("fallback_response", False) or state.get("response", "") == self.fallback_response
+
+    def _should_continue_after_grade_response(self, state: RequestState) -> str:
+        score = state.get("response_grade_score", 0.0)
+        rewrite_attempts = state.get("rewrite_attempts", 0)
+        if not self._is_fallback_response(state) and score < self.config.get_query_config("grading.minimum_score",
+                                                                                          0.7) and rewrite_attempts < self.max_retries:
+            self.logger.debug(
+                f"Response grade is below minimum score and rewrite attempts:{rewrite_attempts}, attempting rewrite,"
+                f"score:{score}")
             return "rewrite"
 
         return "generate_suggested_questions"
 
     def _format_response(self, state: RequestState) -> RequestState:
         """Format the final response"""
+        if self._is_fallback_response(state):
+            self.logger.debug("Fallback response detected, returning empty response")
+            return state
+
         self.logger.info("Formatting the final response")
         result = self.response_formatter.run(state)
 
         state['response'] = result.get("response", "")
         state['output_format'] = result.get("output_format", "")
         return state
-
 
     def _format_documents(self, documents: List[Document]) -> str:
         """Format documents for verification"""
@@ -303,12 +307,12 @@ class QueryProcessWorkflow:
         self.logger.info("Proceeding to generate response")
         return "generate"
 
-
     def _generate_suggested_questions(self, state: RequestState) -> RequestState:
         """Generate contextually relevant follow-up questions"""
         self.logger.info("Generating suggested questions")
         try:
-            if not self.config.get_query_config("output.generate_suggested_documents", False):
+            if not self.config.get_query_config("output.generate_suggested_documents",
+                                                False) or self._is_fallback_response(state):
                 self.logger.info("Suggested questions generation is disabled")
                 return state
 
@@ -393,7 +397,7 @@ class QueryProcessWorkflow:
         self.logger.info("Generating citations")
 
         # need to check if it's enabled or not, if not return state.
-        if not self.config.get_query_config("output.generate_citations", False):
+        if not self.config.get_query_config("output.generate_citations", False) or self._is_fallback_response(state):
             self.logger.info("Citation generation is disabled")
             return state
 
