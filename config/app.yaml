@@ -38,13 +38,13 @@ app:
       web_search_enabled: false
       max_retries: 1 # max retry for query rewrite
       top_k: 10 # for retrieval top n documents, equal to max_documents
-      relevance_threshold: 0.75 # for filter out low relevance documents
+      relevance_threshold: 0.6 # for filter out low relevance documents
       query_rewrite_enabled: true
     grading: # for fact checking, the lower of the score, the higher risk of hallucination
       minimum_score: 0.7
     output:
-      generate_suggested_documents: true
-      generate_citations: true
+      generate_suggested_documents: false
+      generate_citations: false
     metrics:
       enabled: true
       store_in_db: true
