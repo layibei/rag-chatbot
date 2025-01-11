@@ -1,14 +1,14 @@
 # logging_util.py
 import os
 import sys
-from contextvars import ContextVar
-from typing import Dict, Any
+from contextvars import ContextVar, copy_context
+from typing import Dict, Any, Optional
 
 from loguru import logger
 from utils.logger_init import logger  # Import pre-configured logger
 
 # Context management
-_request_context: ContextVar[Dict[str, Any]] = ContextVar('request_context', default={})
+_request_context: ContextVar[Dict[str, Any]] = ContextVar('fastapi_request_context', default={})
 # Get the absolute path of the current file
 CURRENT_FILE_PATH = os.path.abspath(__file__)
 # Get the directory containing the current file
@@ -17,23 +17,30 @@ BASE_DIR = os.path.dirname(CURRENT_FILE_PATH)
 def set_context(**kwargs):
     """
     Set context values using keyword arguments
-    Example: set_context(user_id="123", session_id="abc")
+    Thread-safe context setting that creates a new context dictionary for each request
     """
     try:
-        context = get_context()
-        context.update(kwargs)
-        _request_context.set(context)
-        logger.debug(f"Context updated: {kwargs}")
+        # Create a new context dictionary instead of updating existing one
+        new_context = {}
+        # Optionally merge existing context if needed
+        # new_context.update(get_context())
+        new_context.update(kwargs)
+        _request_context.set(new_context)
+        logger.debug(f"Context set: {new_context}")
     except Exception as e:
         logger.error(f"Error setting context: {str(e)}")
 
-def get_context() -> Dict[str, str]:
-    """Get the current context dictionary"""
+def get_context() -> Dict[str, Any]:
+    """
+    Get the current context dictionary
+    Returns a copy to prevent modification of the context
+    """
     try:
-        return _request_context.get()
+        return dict(_request_context.get())  # Return a copy
     except Exception as e:
         logger.error(f"Error getting context: {str(e)}")
         return {}
+
 def clear_context():
     """lear all context values"""
     try:

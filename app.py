@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+import time
 
 from fastapi import FastAPI, Request
 from langchain.globals import set_debug
@@ -19,6 +20,8 @@ base_config = CommonConfig()
 
 class LoggingContextMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
+        start_time = time.time()
+        
         # Get user_id from headers (required)
         user_id = request.headers.get('X-User-Id', 'unknown')
         
@@ -58,7 +61,10 @@ class LoggingContextMiddleware(BaseHTTPMiddleware):
         set_context(
             user_id=user_id,
             session_id=session_id,
-            request_id=request_id
+            request_id=request_id,
+            request_path=request.url.path,
+            request_method=request.method,
+            start_time=start_time
         )
 
         try:
@@ -70,6 +76,10 @@ class LoggingContextMiddleware(BaseHTTPMiddleware):
                 response.headers['X-Request-Id'] = request_id
             if user_id:
                 response.headers['X-User-Id'] = user_id
+            # Add timing information
+            request_time = time.time() - start_time
+            set_context(request_time_ms=int(request_time * 1000))
+            logger.info(f"Request completed in {request_time:.2f}s")
             return response
         finally:
             clear_context()
