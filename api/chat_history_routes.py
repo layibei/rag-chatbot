@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import List
+from typing import List, Optional
 
 from config.common_settings import CommonConfig
 from conversation import ChatSession
@@ -23,8 +23,11 @@ class ChatSessionResponse(BaseModel):
 # New response models for session history
 class ConversationMessage(BaseModel):
     request_id: str
+    session_id: str
     user_input: str
     response: str
+    liked: Optional[bool] = None
+
 
 
 class SessionHistoryResponse(BaseModel):
@@ -67,7 +70,9 @@ def get_session_history(
             ConversationMessage(
                 request_id=msg.request_id,
                 user_input=msg.user_input,
-                response=msg.response
+                session_id=msg.session_id,
+                response=msg.response,
+                liked=msg.liked
             ) for msg in histories
         ]
 
@@ -116,7 +121,10 @@ def update_message_like(
         return ConversationMessage(
             request_id=updated_message.request_id,
             user_input=updated_message.user_input,
-            response=updated_message.response
+            response=updated_message.response,
+            liked=updated_message.liked,
+            session_id=updated_message.session_id
+
         )
     except HTTPException:
         raise
