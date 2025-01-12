@@ -38,6 +38,15 @@ docker run -d \
   -e POSTGRES_DB={POSTGRES_DB} \
   -v /d/Cloud/docker/volumes/pgvector/data:/var/lib/postgresql/data \
   ankane/pgvector
+  
+docker run \
+    -d \
+    --name=neo4j \
+    --restart always \
+    --publish=7474:7474 --publish=7687:7687 \
+    --env NEO4J_AUTH=neo4j/{NEO4J_PASSWORD} \
+    --volume=/D/Cloud/docker/volumes/neo4j:/data \
+    neo4j:5.26.0
 ```
 
 # Init the database
