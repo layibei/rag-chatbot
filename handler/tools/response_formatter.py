@@ -22,6 +22,7 @@ class ResponseFormatter:
     def __init__(self, llm: BaseChatModel, config: CommonConfig):
         self.llm = llm
         self.config = config
+        self.logger = logger
 
     def run(self, state: Dict[str, Any]) -> Dict[str, Any]:
         try:
@@ -63,9 +64,11 @@ class ResponseFormatter:
         return response.strip()
 
     def _detect_output_format(self, response: str, user_input: str) -> OutputFormat:
-        """Use LLM to intelligently detect the most appropriate output format"""
-        prompt = """As a format detection AI expert, analyze this content and determine the optimal output format.
-        Choose from: chart, table, markdown, or code.
+        """Detect format using LLM analysis"""
+        prompt = """
+        Analyze ONLY the structure of this content and determine the optimal output format.
+        Choose from: chart, table, markdown, code, or text.
+        DO NOT suggest content changes or additions.
         
         USER QUERY: {user_input}
         CONTENT TO ANALYZE: {response}
@@ -76,64 +79,56 @@ class ResponseFormatter:
            - Describes trends, comparisons, or distributions
            - Mentions statistics, percentages, or time-series data
            - User asks for visual representation
-           Examples: price trends, performance metrics, statistical distributions
 
         2. TABLE Format (Choose if):
            - Contains structured, tabular data
            - Presents comparisons across multiple attributes
            - Lists properties or specifications
            - Contains row-column structured information
-           Examples: product comparisons, feature lists, configuration settings
 
         3. CODE Format (Choose if):
            - Contains programming syntax
            - Shows command-line instructions
            - Includes technical implementation details
            - Demonstrates software configurations
-           Examples: code snippets, API usage, configuration files
 
         4. MARKDOWN Format (Choose if):
            - Contains explanatory text with structure
            - Requires hierarchical organization
            - Needs formatting for readability
            - Contains mixed content types
-           Examples: technical documentation, step-by-step guides
-        5. Plain TEXT:
-            if None of above is matched, then default as TEXT.
+           
+        5. TEXT Format (Choose if):
+           - Simple text without special formatting needs
+           - Short responses
+           - Direct answers
+           - When no other format applies
 
-        INSTRUCTIONS:
-        1. Analyze both the user query and the content
-        2. Consider the primary purpose of the information
-        3. Choose the format that best serves the information's purpose
-        4. Return ONLY ONE of: chart, table, markdown, code, text
-        5. Avoid any content adjustment and only do the formatting
-
-        RETURN FORMAT: Single word response (chart/table/markdown/code/text)"""
+        Return ONLY ONE word: chart/table/markdown/code/text"""
 
         try:
-            format_response = self.llm.invoke(
-                [HumanMessage(content=prompt.format(
+            format_result = self.llm.invoke([
+                HumanMessage(content=prompt.format(
                     user_input=user_input,
-                    response=response[:1000]  # Limit content length for token efficiency
-                ))]
-            ).content.strip().lower()
+                    response=response
+                ))
+            ]).content.lower().strip()
 
-            # Validate and return format
-            if format_response in ["chart", "table", "markdown", "code", "text"]:
-                logger.debug(f"Detected format: {format_response} for response")
-                return format_response
-            
-            logger.warning(f"Invalid format detected: {format_response}, falling back to markdown")
-            return "markdown"
-            
+            if format_result not in ["chart", "table", "markdown", "code", "text"]:
+                self.logger.warning(f"Invalid format detected: {format_result}, defaulting to markdown")
+                return "markdown"
+
+            return format_result
+
         except Exception as e:
-            logger.error(f"Error in format detection: {str(e)}")
+            self.logger.error(f"Error detecting format: {str(e)}")
             return "markdown"
 
     def _format_chart(self, response: str, documents: List[Document]) -> str:
         """Format response as a chart visualization"""
         prompt = """Convert the following data into a clear chart representation.
         Use ASCII/Unicode characters to create a visual chart.
+        DO NOT suggest content changes or additions.
         
         DATA: {response}
         
@@ -157,7 +152,8 @@ class ResponseFormatter:
         """Format tables in the response for better client-side rendering"""
         
         prompt = """Analyze and convert any tabular data in this response into a structured JSON format.
-
+        DO NOT suggest content changes or additions.
+        
         RULES:
         1. DETECT TABLE PATTERNS:
            - Markdown tables (|---|---|)
@@ -246,10 +242,9 @@ class ResponseFormatter:
             2. Use proper markdown tables if there's tabular data
             3. Use bullet points for lists
             4. Add bold for important terms
-            5. Preserve any technical accuracy while improving readability
-            6. Keep all technical information intact
+            5. Do not suggest content changes or additions.
 
-            Format the response while maintaining its technical accuracy:"""
+            """
 
     def _format_code_blocks(self, text: str) -> str:
         """Ensure code blocks have proper language tags"""

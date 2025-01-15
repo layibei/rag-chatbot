@@ -1,18 +1,24 @@
 import os
+from pathlib import Path
 from typing import Any, Dict, Union
 from functools import lru_cache
 
 import dotenv
+import spacy
 import yaml
 from langchain_anthropic import ChatAnthropic, AnthropicLLM
 from langchain_community.chat_models import ChatSparkLLM
 from langchain_community.llms.sparkllm import SparkLLM
+from langchain_core.vectorstores import VectorStore
 from langchain_google_genai import GoogleGenerativeAI, ChatGoogleGenerativeAI
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_ollama import OllamaLLM, ChatOllama
 from langchain_postgres import PGVector
 from FlagEmbedding import FlagReranker
 from langchain_qdrant import QdrantVectorStore
+from langchain_redis import RedisConfig, RedisVectorStore
+from neo4j import GraphDatabase
+from spacy import Language
 
 from config.database.database_manager import DatabaseManager
 from utils.logger_init import logger
@@ -183,7 +189,10 @@ class CommonConfig:
                 "web_search_enabled": query_agent_config.get("search", {}).get("web_search_enabled", False),
                 "max_retries": query_agent_config.get("search", {}).get("max_retries", 1),
                 "top_k": query_agent_config.get("search", {}).get("top_k", 10),
-                "relevance_threshold": query_agent_config.get("search", {}).get("relevance_threshold", 0.7)
+                "relevance_threshold": query_agent_config.get("search", {}).get("relevance_threshold", 0.7),
+                "query_expansion_enabled": query_agent_config.get("search", {}).get("query_expansion_enabled", False),
+                "graph_search_enabled": query_agent_config.get("search", {}).get("graph_search_enabled", False),
+                "hypothetical_answer_enabled": query_agent_config.get("search", {}).get("hypothetical_answer_enabled", False),
             },
             "grading": {
                 "minimum_score": query_agent_config.get("grading", {}).get("minimum_score", 0.7),
@@ -213,31 +222,82 @@ class CommonConfig:
         except (KeyError, TypeError):
             return default_value
 
-    def get_vector_store(self):
+    @lru_cache(maxsize=1)
+    def get_vector_store(self) -> VectorStore:
+        """Get vector store"""
         self.logger.info("Get vector store.")
-        # config = RedisConfig(
-        #     index_name="rag_docs",
-        #     redis_url=os.environ["REDIS_URL"],
-        #     distance_metric="COSINE",  # Options: COSINE, L2, IP
-        # )
-        # vector_store = RedisVectorStore(self.get_model("embedding"), config=config)
+        self.check_config(self.config, ["app", "embedding", "vector_store"], "app vector_store is not found.")
+        vector_store_type = self.config["app"]["embedding"]["vector_store"].get("type")
 
-        # vector_store = PGVector(
-        #     embeddings=self.get_model("embedding"),
-        #     collection_name="rag_docs",
-        #     connection=os.environ["POSTGRES_URI"],
-        #     use_jsonb=True,
-        # )
-        vector_store = QdrantVectorStore.from_documents(
-            documents=[],
-            embedding=self.get_model("embedding"),
-            collection_name="rag_docs",
-            url=os.environ["QDRANT_URL"],
-            api_key=os.environ["QDRANT_API_KEY"],
-        )
+        if vector_store_type == "qdrant":
+            return QdrantVectorStore.from_documents(
+                documents=[],
+                embedding=self.get_model("embedding"),
+                collection_name="rag_docs",
+                url=os.environ["QDRANT_URL"],
+                api_key=os.environ["QDRANT_API_KEY"],
+            )
 
-        return vector_store
+        elif vector_store_type == "redis":
+            config = RedisConfig(
+                index_name="rag_docs",
+                redis_url=os.environ["REDIS_URL"],
+                distance_metric="COSINE",  # Options: COSINE, L2, IP
+            )
+            return RedisVectorStore(self.get_model("embedding"), config=config)
 
+        elif vector_store_type == "pgvector":
+            return PGVector(
+                embeddings=self.get_model("embedding"),
+                collection_name="rag_docs",
+                connection=os.environ["POSTGRES_URI"],
+                use_jsonb=True,
+            )
+        else:
+            raise RuntimeError("Not found the vector store type")
+
+    @lru_cache(maxsize=1)
+    def get_graph_store(self) -> GraphDatabase:
+        """Get Neo4j graph store"""
+        try:
+            if not self.config["app"]["embedding"]["graph_store"].get("enabled", False):
+                self.logger.info("Graph store is disabled")
+                return None
+
+            uri = os.environ.get("NEO4J_URI")
+            username = os.environ.get("NEO4J_USERNAME")
+            password = os.environ.get("NEO4J_PASSWORD")
+
+            if not all([uri, username, password]):
+                self.logger.error("Missing Neo4j credentials in environment variables")
+                return None
+
+            driver = GraphDatabase.driver(uri, auth=(username, password))
+
+            # Test the connection
+            try:
+                driver.verify_connectivity()
+                self.logger.info("Successfully connected to Neo4j")
+                return driver
+            except Exception as e:
+                self.logger.error(f"Failed to connect to Neo4j: {str(e)}")
+                if driver:
+                    driver.close()
+                return None
+
+        except Exception as e:
+            self.logger.error(f"Failed to initialize graph store: {str(e)}")
+            return None
+
+    def get_nlp_spacy(self) -> Language:
+        """Get NLP model"""
+        # Load spaCy model from local path
+        model_path = Path(os.path.join(BASE_DIR, "../models/spacy/en_core_web_md"))
+        if not model_path.exists():
+            raise RuntimeError(
+                "spaCy model not found. Please run scripts/download_spacy_model.py first"
+            )
+        return spacy.load(str(model_path))
     def setup_proxy(self):
         """Setup proxy configuration"""
         try:

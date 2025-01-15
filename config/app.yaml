@@ -30,14 +30,23 @@ app:
     archive_path: "./data/archive"
     trunk_size: 2048
     overlap: 256
-    confluence:
-      url: https://akjamie.atlassian.net/
+    vector_store:
+      enabled: true
+      type: "qdrant"
+      # type: "redis"
+      # type: "pgvector"
+    graph_store:
+      enabled: true
+      type: "neo4j"
   query_agent:
     search:
       rerank_enabled: false
+      query_expansion_enabled: true
+      graph_search_enabled: true
+      hypothetical_answer_enabled: true
       web_search_enabled: false
       max_retries: 1 # max retry for query rewrite
-      top_k: 10 # for retrieval top n documents, equal to max_documents
+      top_k: 5 # for retrieval top n documents, equal to max_documents
       relevance_threshold: 0.6 # for filter out low relevance documents
       query_rewrite_enabled: true
     grading: # for fact checking, the lower of the score, the higher risk of hallucination

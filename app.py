@@ -8,9 +8,7 @@ from starlette.middleware.cors import CORSMiddleware
 
 from api.chat_history_routes import router as chat_history_router
 from api.chat_routes import router as chat_router
-from api.embedding_routes import router as embedding_router
 from config.common_settings import CommonConfig
-from preprocess.doc_embedding_job import DocEmbeddingJob
 from utils.id_util import get_id
 from utils.logging_util import logger, set_context, clear_context
 
@@ -98,9 +96,6 @@ async def lifespan(app: FastAPI):
         logger.info(f"Proxy setup {'enabled' if proxy_result else 'disabled'}")
 
         # Initialize other components (make this non-blocking)
-        embedding_job = DocEmbeddingJob()
-        init_result = await embedding_job.initialize()
-        logger.info(f"Document embedding job initialization {'successful' if init_result else 'failed'}")
 
         logger.info("Application startup completed")
 
@@ -131,7 +126,6 @@ app.add_middleware(
 )
 
 app.include_router(chat_history_router, prefix="/chat")
-app.include_router(embedding_router, prefix="/embedding")
 app.include_router(chat_router, prefix="/chat")
 
 
