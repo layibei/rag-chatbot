@@ -4,265 +4,380 @@ from langchain_core.messages import HumanMessage
 from langchain_core.documents import Document
 from config.common_settings import CommonConfig
 from utils.logging_util import logger
+import re
+from typing import List, Tuple, Dict
 
-OutputFormat = Literal["chart", "table", "markdown", "code"]
+OutputFormat = Literal["chart", "table", "markdown", "code", "text"]
 
 
 class ResponseFormatter:
     """
-    Formats the final response from the query processing flow based on content type.
-    Supports multiple output formats:
-    - markdown: For general documentation-style responses
-    - chat: For conversational responses
-    - table: For structured data
-    - code: For code examples and technical responses
-    - plain: For simple text responses
+    Formats the final response with minimal modifications while ensuring consistent structure.
+    Supports multiple output formats with pattern-based detection and validation.
     """
 
     def __init__(self, llm: BaseChatModel, config: CommonConfig):
         self.llm = llm
         self.config = config
         self.logger = logger
+        
+        # Fixed patterns for format detection with corrected regex
+        self.format_patterns = {
+            "code": [
+                r"```[\w+].*?```",  # Code blocks with language
+                r"(?:^|\n)(?:import|from|def|class|public|function)"  # Code keywords
+            ],
+            "table": [
+                r"\|[^|]+\|[^|]+\|",          # Basic table structure
+                r"\|[\s\-:]+\|[\s\-:]+\|",    # Fixed table header separator
+                r"[+][\-=]+[+][\-=]+[+]",     # Fixed ASCII table borders
+                r"(?:\w+,){2,}\w+"            # CSV-like data
+            ],
+            "chart": [
+                r"\b\d{4}[-/]\d{1,2}[-/]\d{1,2}\b.*?(?:\d+(?:\.\d+)?)",  # Time series
+                r"\b\d+(?:\.\d+)?%",                                      # Percentages
+                r"\b\d+(?:\.\d+)?(?:k|m|b|t|K|M|B|T)?\b",               # Quantities
+                r"\d+(?:\.\d+)?\s*(?:vs|versus|compared to)\s*\d+(?:\.\d+)?"  # Comparisons
+            ]
+        }
+        
+        # Language detection patterns
+        self.code_language_patterns = {
+            "python": [r"import \w+", r"def \w+", r"class \w+", r"print\("],
+            "java": [r"public class", r"private \w+", r"System\.", r"void \w+"],
+            "javascript": [r"const \w+", r"function \w+", r"let \w+", r"console\."],
+            "sql": [r"SELECT", r"INSERT INTO", r"CREATE TABLE", r"UPDATE \w+"],
+            "html": [r"<\w+>", r"</\w+>", r"<html", r"<div"],
+            "shell": [r"#!/bin/\w+", r"\$ \w+", r"echo ", r"sudo "]
+        }
 
     def run(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        """Main entry point for response formatting"""
         try:
             response = state.get("response", "")
-            documents = state.get("documents", state.get("web_results", []))
             user_input = state.get("rewritten_query", state.get("user_input", ""))
-            self.logger.info(f"Formatting the generation:{response}")
-
+            
             if not response:
                 return state
 
-            # Detect format using LLM
-            output_format = self._detect_output_format(response, user_input)
+            # 1. Initial format detection using patterns
+            detected_format = self._detect_format_patterns(response)
             
-            # Format based on detected type
-            formatted_response = {
-                "chart": self._format_chart,
-                "table": self._format_table,
-                "code": self._format_code,
-                "markdown": self._format_markdown,
-                "text": self._format_text,
-            }[output_format](response)
+            # 2. LLM confirmation only if pattern detection is ambiguous
+            if not detected_format:
+                detected_format = self._confirm_format_llm(response, user_input)
 
+            # 3. Apply formatting with validation
+            formatted_response = self._apply_format(response, detected_format)
+            
+            # 4. Validate output structure
+            if not self._validate_formatted_output(formatted_response, detected_format):
+                self.logger.warning("Format validation failed, using plain text")
+                return {
+                    "response": response.strip(),
+                    "output_format": "text"
+                }
 
             return {
                 "response": formatted_response,
-                "output_format": output_format
+                "output_format": detected_format
             }
 
         except Exception as e:
-            logger.error(f"Error formatting response: {str(e)}")
-            return {
-                "response": state.get("response", ""),
-                "output_format": "markdown"
-            }
+            self.logger.error(f"Error formatting response: {str(e)}")
+            return {"response": response, "output_format": "text"}
 
-    def _format_text(self, response: str):
-        self.logger.info(f"Detected format: text for response")
-        return response.strip()
+    def _detect_format_patterns(self, response: str) -> str:
+        """Detect format using regex patterns first"""
+        for format_type, patterns in self.format_patterns.items():
+            for pattern in patterns:
+                if re.search(pattern, response, re.MULTILINE):
+                    self.logger.debug(f"Detected {format_type} format using pattern")
+                    return format_type
+                    
+        return "text" if len(response.split()) < 30 else "markdown"
 
-    def _detect_output_format(self, response: str, user_input: str) -> OutputFormat:
-        """Detect format using LLM analysis"""
-        prompt = """
-        Analyze ONLY the structure of this content and determine the optimal output format.
-        Choose from: chart, table, markdown, code, or text.
-        DO NOT suggest content changes or additions.
+    def _confirm_format_llm(self, response: str, user_input: str) -> str:
+        """Use LLM only to confirm format in ambiguous cases"""
+        prompt = """Analyze ONLY the structure and return ONE format type.
+        Options: chart, table, code, markdown, text
         
-        USER QUERY: {user_input}
-        CONTENT TO ANALYZE: {response}
-
-        FORMAT CRITERIA:
-        1. CHART Format (Choose if):
-           - Contains numerical data that would benefit from visualization
-           - Describes trends, comparisons, or distributions
-           - Mentions statistics, percentages, or time-series data
-           - User asks for visual representation
-
-        2. TABLE Format (Choose if):
-           - Contains structured, tabular data
-           - Presents comparisons across multiple attributes
-           - Lists properties or specifications
-           - Contains row-column structured information
-
-        3. CODE Format (Choose if):
-           - Contains programming syntax
-           - Shows command-line instructions
-           - Includes technical implementation details
-           - Demonstrates software configurations
-
-        4. MARKDOWN Format (Choose if):
-           - Contains explanatory text with structure
-           - Requires hierarchical organization
-           - Needs formatting for readability
-           - Contains mixed content types
-           
-        5. TEXT Format (Choose if):
-           - Simple text without special formatting needs
-           - Short responses
-           - Direct answers
-           - When no other format applies
-
-        Return ONLY ONE word: chart/table/markdown/code/text"""
+        Content: {response}
+        
+        Rules:
+        1. chart: Only for actual numerical data/trends
+        2. table: Only for actual tabular data
+        3. code: Only for actual code/commands
+        4. text: For simple, short responses
+        5. markdown: For everything else
+        
+        Return ONLY ONE WORD."""
 
         try:
             format_result = self.llm.invoke([
-                HumanMessage(content=prompt.format(
-                    user_input=user_input,
-                    response=response
-                ))
+                HumanMessage(content=prompt.format(response=response))
             ]).content.lower().strip()
+            
+            return format_result if format_result in ["chart", "table", "code", "markdown", "text"] else "text"
+        except:
+            return "text"
 
-            if format_result not in ["chart", "table", "markdown", "code", "text"]:
-                self.logger.warning(f"Invalid format detected: {format_result}, defaulting to markdown")
-                return "markdown"
+    def _validate_formatted_output(self, formatted: str, format_type: str) -> bool:
+        """Validate the formatted output matches expected structure"""
+        if format_type == "code" and "```" not in formatted:
+            return False
+        if format_type == "table" and "|" not in formatted:
+            return False
+        if format_type == "chart" and "```chart" not in formatted:
+            return False
+        return True
 
-            return format_result
+    def _apply_format(self, response: str, format_type: str) -> str:
+        """Apply formatting with minimal content modification"""
+        if format_type == "text":
+            return response.strip()
+            
+        if format_type == "code":
+            return self._format_code_minimal(response)
+            
+        if format_type == "table":
+            return self._format_table_minimal(response)
+            
+        if format_type == "chart":
+            return self._format_chart_minimal(response)
+            
+        # Default markdown formatting
+        return self._format_markdown_minimal(response)
 
-        except Exception as e:
-            self.logger.error(f"Error detecting format: {str(e)}")
-            return "markdown"
-
-    def _format_chart(self, response: str, documents: List[Document]) -> str:
-        """Format response as a chart visualization"""
-        prompt = """Convert the following data into a clear chart representation.
-        Use ASCII/Unicode characters to create a visual chart.
-        DO NOT suggest content changes or additions.
-        
-        DATA: {response}
-        
-        Guidelines:
-        1. Choose appropriate chart type (bar, line, scatter)
-        2. Include axis labels and scales
-        3. Add title and legend if needed
-        4. Ensure readability in monospace font
-        5. Keep data accuracy
-        
-        Format as a chart:"""
-
-        try:
-            formatted = self.llm.invoke([HumanMessage(content=prompt.format(response=response))]).content
-            return f"```chart\n{formatted}\n```"
-        except Exception as e:
-            logger.error(f"Error formatting chart: {str(e)}")
+    def _format_code_minimal(self, response: str) -> str:
+        """Format code blocks with language detection"""
+        # Check if already properly formatted
+        if re.match(r"^```\w*\n.*?\n```$", response, re.DOTALL):
             return response
-
-    def _format_table(self, response: str) -> str:
-        """Format tables in the response for better client-side rendering"""
+            
+        # Extract existing code blocks or treat entire response as code
+        code_block_pattern = r"```(.*?)```"
+        code_blocks = re.findall(code_block_pattern, response, re.DOTALL)
         
-        prompt = """Analyze and convert any tabular data in this response into a structured JSON format.
-        DO NOT suggest content changes or additions.
-        
-        RULES:
-        1. DETECT TABLE PATTERNS:
-           - Markdown tables (|---|---|)
-           - Lists that compare items
-           - Property-value pairs
-           - Structured comparisons
-           - Version or feature matrices
-
-        2. TABLE STRUCTURE:
-        {
-            "type": "table",
-            "data": {
-                "headers": ["Column1", "Column2"],
-                "rows": [
-                    ["Value1", "Value2"],
-                    ["Value3", "Value4"]
-                ],
-                "title": "Optional title",
-                "description": "Optional description"
-            }
-        }
-
-        3. FORMATTING RULES:
-           - Keep headers concise and clear
-           - Ensure data alignment in rows
-           - Preserve numerical precision
-           - Maintain data relationships
-           - Remove redundant information
-
-        4. TEXT HANDLING:
-           - Keep non-table text unchanged
-           - Preserve text before and after tables
-           - Maintain paragraph breaks
-
-        Original response:
-        {response}
-
-        Return format:
-        - For sections with tables: <table>{json}</table>
-        - For regular text: keep as is
-        """
-
-        try:
-            formatted = self.llm.invoke([HumanMessage(content=prompt)]).content.strip()
-            return formatted
-        except Exception as e:
-            self.logger.error(f"Table formatting failed: {str(e)}")
-            return response
-
-    def _format_code(self, response: str) -> str:
-        """Format response focusing on code blocks"""
-        # First try to format with language detection
-        formatted = self._format_code_blocks(response)
-
-        # Add code block markers if not present
-        if not formatted.strip().startswith("```"):
-            formatted = f"```\n{formatted}\n```"
-
-        return formatted
-
-    def _format_markdown(self, response: str) -> str:
-        """Format the response with proper markdown syntax"""
-        prompt = self._create_formatting_prompt(response)
-
-        try:
-            formatted = self.llm.invoke([HumanMessage(content=prompt)]).content
-            return formatted
-        except Exception as e:
-            logger.error(f"Error in markdown formatting: {str(e)}")
-            return response
-
-    def _create_formatting_prompt(self, response: str) -> str:
-        """Create a prompt for the LLM to format the response"""
-        return f"""Format the following response in clear markdown, including:
-            - Proper headings
-            - Code blocks with language tags
-            - Lists and tables where appropriate
-            - Bold/italic for emphasis
-            - Proper line breaks
-
-            Response to format:
-            {response}
-
-            Guidelines:
-            1. Use ```language for code blocks with appropriate language tags
-            2. Use proper markdown tables if there's tabular data
-            3. Use bullet points for lists
-            4. Add bold for important terms
-            5. Do not suggest content changes or additions.
-
-            """
-
-    def _format_code_blocks(self, text: str) -> str:
-        """Ensure code blocks have proper language tags"""
-        # This is a fallback if LLM formatting fails
-        import re
-        code_block_pattern = r'```(?![\w+])(.*?)```'
-
-        def add_language_tag(match):
-            code = match.group(1)
-            # Try to detect language or default to plaintext
-            if 'public class' in code or 'import java' in code:
-                lang = 'java'
-            elif 'def ' in code or 'import ' in code:
-                lang = 'python'
-            elif '<html' in code:
-                lang = 'html'
+        if not code_blocks:
+            # Treat entire response as code if it looks like code
+            if any(re.search(pattern, response) for patterns in self.code_language_patterns.values() for pattern in patterns):
+                code_blocks = [response]
             else:
-                lang = 'plaintext'
-            return f'```{lang}{code}```'
+                return f"```\n{response.strip()}\n```"
+        
+        formatted_blocks = []
+        for block in code_blocks:
+            # Detect language
+            lang = "plaintext"
+            for language, patterns in self.code_language_patterns.items():
+                if any(re.search(pattern, block, re.IGNORECASE) for pattern in patterns):
+                    lang = language
+                    break
+            
+            # Format block with detected language
+            formatted_block = f"```{lang}\n{block.strip()}\n```"
+            formatted_blocks.append(formatted_block)
+        
+        return "\n\n".join(formatted_blocks)
 
-        return re.sub(code_block_pattern, add_language_tag, text, flags=re.DOTALL)
+    def _format_table_minimal(self, response: str) -> str:
+        """Format tables with consistent structure and alignment"""
+        def parse_table_data(text: str) -> Tuple[List[str], List[List[str]]]:
+            """Extract headers and rows from various table formats"""
+            lines = [line.strip() for line in text.split('\n') if line.strip()]
+            
+            # Handle existing markdown tables
+            if re.match(self.format_patterns["table"][0], text):
+                rows = [
+                    [cell.strip() for cell in line.strip('|').split('|')]
+                    for line in lines if not re.match(r'\|[\s-:|]+\|', line)
+                ]
+                return rows[0], rows[1:]
+            
+            # Handle ASCII tables
+            if re.match(self.format_patterns["table"][1], text):
+                data_lines = [line for line in lines if not re.match(r'[+\|][-+=]+[+\|]', line)]
+                rows = [
+                    [cell.strip() for cell in re.split(r'\s{2,}|\|', line.strip('|'))]
+                    for line in data_lines
+                ]
+                return rows[0], rows[1:]
+            
+            # Handle CSV-like data
+            if re.match(self.format_patterns["table"][2], text):
+                rows = [line.split(',') for line in lines]
+                return rows[0], rows[1:]
+            
+            # Handle space-aligned columns
+            if re.match(self.format_patterns["table"][3], text):
+                sample = lines[0]
+                spaces = [i for i, char in enumerate(sample) if char == ' ' and sample[i-1] != ' ']
+                if spaces:
+                    rows = []
+                    for line in lines:
+                        row = []
+                        start = 0
+                        for end in spaces + [len(line)]:
+                            row.append(line[start:end].strip())
+                            start = end
+                        rows.append(row)
+                    return rows[0], rows[1:]
+            
+            return [], []
+
+        def format_markdown_table(headers: List[str], rows: List[List[str]]) -> str:
+            """Create properly formatted markdown table"""
+            if not headers or not rows:
+                return response
+            
+            # Clean and standardize cell content
+            headers = [str(h).strip() for h in headers]
+            rows = [[str(cell).strip() for cell in row] for row in rows]
+            
+            # Calculate column widths
+            widths = []
+            for i in range(len(headers)):
+                column = [headers[i]] + [row[i] for row in rows if i < len(row)]
+                widths.append(max(len(cell) for cell in column))
+            
+            # Format table
+            header_line = '| ' + ' | '.join(h.ljust(w) for h, w in zip(headers, widths)) + ' |'
+            separator = '|' + '|'.join('-' * (w + 2) for w in widths) + '|'
+            data_lines = [
+                '| ' + ' | '.join(cell.ljust(w) for cell, w in zip(row, widths)) + ' |'
+                for row in rows
+            ]
+            
+            return '\n'.join([header_line, separator] + data_lines)
+
+        try:
+            headers, rows = parse_table_data(response)
+            if headers and rows:
+                return format_markdown_table(headers, rows)
+            return response
+        except Exception as e:
+            self.logger.error(f"Error formatting table: {str(e)}")
+            return response
+
+    def _format_chart_minimal(self, response: str) -> str:
+        """Format chart data with ASCII/Unicode visualization"""
+        def extract_chart_data(text: str) -> Dict[str, List[Tuple[str, float]]]:
+            data = {
+                "time_series": [],
+                "percentages": [],
+                "quantities": [],
+                "comparisons": []
+            }
+            
+            # Extract time series data
+            time_series = re.finditer(self.format_patterns["chart"][0], text)
+            for match in time_series:
+                date = re.search(r"\d{4}[-/]\d{1,2}[-/]\d{1,2}", match.group())
+                value = re.search(r"(?:\d+(?:\.\d+)?)", match.group())
+                if date and value:
+                    data["time_series"].append((date.group(), float(value.group())))
+            
+            # Extract percentages
+            percentages = re.finditer(self.format_patterns["chart"][1], text)
+            for match in percentages:
+                value = float(match.group().rstrip('%'))
+                data["percentages"].append((match.group(), value))
+            
+            # Extract quantities
+            quantities = re.finditer(self.format_patterns["chart"][2], text)
+            for match in quantities:
+                value = float(re.search(r"\d+(?:\.\d+)?", match.group()).group())
+                data["quantities"].append((match.group(), value))
+            
+            return data
+
+        def create_ascii_chart(data: Dict[str, List[Tuple[str, float]]]) -> str:
+            if not any(data.values()):
+                return response
+            
+            chart_lines = ["```chart"]
+            
+            # Handle time series
+            if data["time_series"]:
+                dates, values = zip(*sorted(data["time_series"]))
+                max_val = max(values)
+                scale = 40 / max_val
+                
+                chart_lines.append("Time Series Data:")
+                for date, val in zip(dates, values):
+                    bar = '█' * int(val * scale)
+                    chart_lines.append(f"{date} {val:>8.1f} | {bar}")
+            
+            # Handle percentages
+            if data["percentages"]:
+                chart_lines.append("\nPercentage Distribution:")
+                for label, val in data["percentages"]:
+                    bar = '█' * int(val * 0.4)  # Scale to 40 chars max
+                    chart_lines.append(f"{label:>8} | {bar}")
+            
+            # Handle quantities
+            if data["quantities"]:
+                chart_lines.append("\nQuantity Comparison:")
+                max_val = max(val for _, val in data["quantities"])
+                scale = 40 / max_val
+                for label, val in data["quantities"]:
+                    bar = '█' * int(val * scale)
+                    chart_lines.append(f"{label:>8} | {bar}")
+            
+            chart_lines.append("```")
+            return '\n'.join(chart_lines)
+
+        try:
+            chart_data = extract_chart_data(response)
+            if any(chart_data.values()):
+                return create_ascii_chart(chart_data)
+            return response
+        except Exception as e:
+            self.logger.error(f"Error formatting chart: {str(e)}")
+            return response
+
+    def _format_markdown_minimal(self, response: str) -> str:
+        """Apply minimal markdown formatting while preserving content"""
+        lines = response.strip().split('\n')
+        formatted_lines = []
+        in_list = False
+        
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            
+            # Skip empty lines
+            if not stripped:
+                formatted_lines.append('')
+                in_list = False
+                continue
+                
+            # Preserve existing markdown
+            if any(stripped.startswith(md) for md in ['#', '-', '*', '>', '```', '|']):
+                formatted_lines.append(line)
+                in_list = stripped.startswith(('-', '*'))
+                continue
+            
+            # Format headings (only if it looks like a title)
+            if i == 0 or (i > 0 and not lines[i-1].strip()):
+                if len(stripped) < 50 and stripped[0].isupper():
+                    if i == 0:  # Main title
+                        formatted_lines.append(f"# {stripped}")
+                    else:  # Subtitle
+                        formatted_lines.append(f"## {stripped}")
+                    continue
+            
+            # Format lists (detect potential list items)
+            if not in_list and i > 0 and lines[i-1].strip() and (
+                stripped.startswith(('The ', 'This ', 'A ', 'An ')) or
+                any(stripped.lower().startswith(w) for w in ['use ', 'when ', 'how ', 'why '])
+            ):
+                formatted_lines.append(f"- {stripped}")
+                in_list = True
+                continue
+            
+            # Preserve paragraph structure
+            formatted_lines.append(stripped)
+            in_list = False
+        
+        return '\n'.join(formatted_lines)
