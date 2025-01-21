@@ -1,80 +1,136 @@
-import asyncio
-import os
+from contextlib import asynccontextmanager
+import time
 
-import dotenv
-from fastapi import FastAPI
-from datetime import timedelta
+from fastapi import FastAPI, Request
 from langchain.globals import set_debug
-from langchain_community.chat_models import ChatSparkLLM
-from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_community.llms.sparkllm import SparkLLM
-from langchain_postgres import PGVector
-from langchain_qdrant import QdrantVectorStore
-from langchain_redis import RedisConfig, RedisVectorStore
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.cors import CORSMiddleware
 
+from api.chat_history_routes import router as chat_history_router
+from api.chat_routes import router as chat_router
 from config.common_settings import CommonConfig
-from handler.generic_query_handler import QueryHandler
-from preprocess.index_log_helper import IndexLogHelper
-from utils.logging_util import logger
+from utils.id_util import get_id
+from utils.logging_util import logger, set_context, clear_context
 
-from preprocess.doc_embeddings import DocEmbeddingsProcessor
-
-dotenv.load_dotenv()
-set_debug(True)
-app = FastAPI()
-
+# Global config instance
 base_config = CommonConfig()
 
-llm = base_config.get_model("llm")
-llm_chat = base_config.get_model("chatllm")
-embeddings = base_config.get_model("embedding")
-# embeddings = HuggingFaceEmbeddings(model="sentence-transformers/all-mpnet-base-v2")
-collection_name = "rag_docs"
-# vector_store = QdrantVectorStore.from_existing_collection(
-#     embedding=embeddings,
-#     collection_name=collection_name,
-#     api_key=os.environ["QDRANT_API_KEY"],
-#     url="http://localhost:6333",
-# )
-postgres_uri = os.environ["POSTGRES_URI"]
-# vector_store = PGVector(
-#     embeddings=embeddings,
-#     collection_name=collection_name,
-#     connection=postgres_uri,
-#     use_jsonb=True,
-# )
 
-config = RedisConfig(
-    index_name="rag_docs",
-    redis_url=os.environ["REDIS_URL"],
-    distance_metric="COSINE",  # Options: COSINE, L2, IP
+class LoggingContextMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        start_time = time.time()
+        
+        # Get user_id from headers (required)
+        user_id = request.headers.get('X-User-Id', 'unknown')
+        
+        # Get optional session_id and request_id from headers
+        session_id = request.headers.get('X-Session-Id')
+        request_id = request.headers.get('X-Request-Id')
+        
+        # Check if this is a chat completion request
+        is_chat_completion = request.url.path.endswith('chat/completion')
+        
+        # Generate session_id if missing or empty for chat completion requests
+        if (not session_id or session_id.strip() == "") and is_chat_completion:
+            session_id = f"sess_{get_id().lower()}"
+            # Remove existing empty header if present
+            request.headers._list = [(k, v) for k, v in request.headers._list if k != b'x-session-id']
+            # Add new header
+            request.headers._list.append(
+                (b'x-session-id', session_id.encode())
+            )
+            logger.debug(f"Generated new session_id: {session_id}")
+        
+        # Generate request_id if missing or empty for chat completion requests
+        if (not request_id or request_id.strip() == "") and is_chat_completion:
+            request_id = f"req_{get_id().lower()}"
+            # Remove existing empty header if present
+            request.headers._list = [(k, v) for k, v in request.headers._list if k != b'x-request-id']
+            # Add new header
+            request.headers._list.append(
+                (b'x-request-id', request_id.encode())
+            )
+            logger.debug(f"Generated new request_id: {request_id}")
+        
+        # Update the headers scope for ASGI
+        request.scope['headers'] = request.headers._list
+
+        # Set context using keyword arguments
+        set_context(
+            user_id=user_id,
+            session_id=session_id,
+            request_id=request_id,
+            request_path=request.url.path,
+            request_method=request.method,
+            start_time=start_time
+        )
+
+        try:
+            response = await call_next(request)
+            # Add IDs to response headers only if they exist
+            if session_id:
+                response.headers['X-Session-Id'] = session_id
+            if request_id:
+                response.headers['X-Request-Id'] = request_id
+            if user_id:
+                response.headers['X-User-Id'] = user_id
+            # Add timing information
+            request_time = time.time() - start_time
+            set_context(request_time_ms=int(request_time * 1000))
+            logger.info(f"Request completed in {request_time:.2f}s")
+            return response
+        finally:
+            clear_context()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifecycle manager for FastAPI application"""
+    embedding_job = None
+    try:
+        # Startup
+        logger.info("Initializing application...")
+
+        # Initialize config and setup proxy first
+        proxy_result = await base_config.asetup_proxy()
+        logger.info(f"Proxy setup {'enabled' if proxy_result else 'disabled'}")
+
+        # Initialize other components (make this non-blocking)
+
+        logger.info("Application startup completed")
+
+        # Important: yield here to let FastAPI take control
+        yield
+
+    except Exception as e:
+        logger.error(f"Startup error: {str(e)}")
+        raise
+    finally:
+        # Shutdown
+        if embedding_job and embedding_job.scheduler:
+            embedding_job.scheduler.shutdown()
+        logger.info("Shutting down application...")
+
+
+app = FastAPI(lifespan=lifespan)
+app.add_middleware(LoggingContextMiddleware)
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allow all origins, adjust as needed
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+    allow_headers=["*"],  # Allow all headers, adjust as needed
+    expose_headers=["X-Session-Id", "X-Request-Id", "X-User-Id"],
 )
-vector_store = RedisVectorStore(embeddings, config=config)
 
-indexLogHelper = IndexLogHelper(postgres_uri)
-docEmbeddingsProcessor = DocEmbeddingsProcessor(embeddings, vector_store, indexLogHelper)
-queryHandler = QueryHandler(llm, vector_store)
-
-
-async def preprocess():
-    logger.info("Loading documents...")
-    await docEmbeddingsProcessor.load_documents(base_config.get_embedding_config().get("input_path"))
-
-
-@app.get("/query")
-def query(query: str):
-    logger.info("Query: " + query)
-    return queryHandler.handle(query)
+app.include_router(chat_history_router, prefix="/chat")
+app.include_router(chat_router, prefix="/chat")
 
 
 if __name__ == "__main__":
-    os.environ["no_proxy"] = "localhost,127.0.0.1"
-    os.environ["https_proxy"] = "http://127.0.0.1:7890"
-    asyncio.run(preprocess())
-
-    from langchain.globals import set_debug
-
-    set_debug(True)
+    # set_debug(True)
     import uvicorn
 
     uvicorn.run(app, host="0.0.0.0", port=8000)

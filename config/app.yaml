@@ -9,16 +9,62 @@ app:
 #      type: "sparkllm"
 #      type: "ollama"
 #      model: "qwen2.5"
-      type: gemini
-      model: gemini-pro
+      type: "gemini"
+      model: "gemini-2.0-flash-exp"
+#      type: anthropic
+#      model: claude-3-sonnet-20240229
     chatllm:
 #      type: "sparkllm"
-      type: "ollama"
-      model: "qwen2.5"
+#      type: "qwen"
+#      model: "qwen2.5"
+      type: "gemini"
+      model: "gemini-2.0-flash-exp"
+#      type: "ollama"
+#      model: "llama3.1"
+    rerank:
+      type: "bge"
+      model: "BAAI/bge-reranker-large"
   embedding:
     input_path: "./data/input"
+    staging_path: "./data/staging"
     archive_path: "./data/archive"
     trunk_size: 2048
     overlap: 256
-
-
+    vector_store:
+      enabled: true
+      type: "qdrant"
+      # type: "redis"
+      # type: "pgvector"
+    graph_store:
+      enabled: true
+      type: "neo4j"
+  query_agent:
+    search:
+      rerank_enabled: false
+      query_expansion_enabled: true
+      graph_search_enabled: true
+      hypothetical_answer_enabled: true
+      web_search_enabled: false
+      max_retries: 1 # max retry for query rewrite
+      top_k: 5 # for retrieval top n documents, equal to max_documents
+      relevance_threshold: 0.6 # for filter out low relevance documents
+      query_rewrite_enabled: true
+    grading: # for fact checking, the lower of the score, the higher risk of hallucination
+      minimum_score: 0.7
+    output:
+      generate_suggested_documents: false
+      generate_citations: false
+    metrics:
+      enabled: true
+      store_in_db: true
+      log_level: "INFO"
+  proxy:
+    enabled: true
+    no_proxy: "localhost,127.0.0.1"
+    http_proxy: "http://127.0.0.1:7890"
+    https_proxy: "http://127.0.0.1:7890"
+  logging.level:
+    root: "DEBUG"  # default for all packages including project and libraries
+    utils.lock: "WARNING"
+    langchain: "WARNING"
+    httpx: "WARNING"
