@@ -77,12 +77,37 @@ def generate_html_report(responses, evaluations):
     <head>
         <title>RAG Evaluation Report</title>
         <style>
-            body { font-family: Arial, sans-serif; margin: 40px; }
-            .question { margin-bottom: 30px; padding: 20px; border: 1px solid #ddd; border-radius: 5px; }
-            .question h3 { color: #2c3e50; margin-top: 0; }
-            .answer { background: #f8f9fa; padding: 15px; margin: 10px 0; border-radius: 5px; }
-            .evaluation { background: #e9ecef; padding: 15px; margin: 10px 0; border-radius: 5px; }
-            .timestamp { color: #666; font-size: 0.9em; margin-bottom: 20px; }
+            body { 
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+                margin: 40px;
+            }
+            .question { 
+                margin-bottom: 30px;
+                padding: 20px;
+                border: 1px solid #ddd;
+                border-radius: 5px;
+            }
+            .question h3 {
+                color: #2c3e50;
+                margin-top: 0;
+            }
+            .answer {
+                background: #f8f9fa;
+                padding: 15px;
+                margin: 10px 0;
+                border-radius: 5px;
+            }
+            .evaluation {
+                background: #e9ecef;
+                padding: 15px;
+                margin: 10px 0;
+                border-radius: 5px;
+            }
+            .timestamp {
+                color: #666;
+                font-size: 0.9em;
+                margin-bottom: 20px;
+            }
         </style>
     </head>
     <body>
