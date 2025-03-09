@@ -1,0 +1,11 @@
+{
+    "question": [
+        "1.What are the main components of the Kubernetes control plane?",
+        "2.What is the role of the kubelet in a Kubernetes cluster?"
+    ],
+    "answer": [
+        "The main components of the Kubernetes control plane include:\nkube-apiserver: The API server that exposes the Kubernetes API and acts as the front end for the Kubernetes control plane.\netcd: A consistent and highly available key-value store used as Kubernetes' backing store for all cluster data.\nkube-scheduler: A control plane component that watches for newly created Pods with no assigned node and selects a node for them to run on.\nkube-controller-manager: A control plane component that runs controller processes, such as the Node controller, Job controller, EndpointSlice controller, and ServiceAccount controller.\ncloud-controller-manager: A control plane component that embeds cloud-specific control logic, allowing the cluster to interact with cloud provider APIs.",
+        
+        "The kubelet is an agent that runs on each node in the cluster. It ensures that containers are running in a Pod by taking a set of PodSpecs and ensuring that the containers described in those PodSpecs are running and healthy. The kubelet does not manage containers that were not created by Kubernetes."
+    ]
+} 
