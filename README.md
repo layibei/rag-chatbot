@@ -1,6 +1,76 @@
-# rag-chatbot
-Use langchain series to build a simple RAG solution.
-![rag-hl-flow.png](readme%2Frag-hl-flow.png)
+# RAG Chatbot
+
+一个基于 RAG (Retrieval Augmented Generation) 的问答系统。
+
+## 项目结构
+
+### 主要目录
+
+- `api/` - API 路由和接口定义
+  - `chat_routes.py` - 聊天相关的 API 端点
+  - `health_routes.py` - 健康检查端点
+
+- `config/` - 配置相关
+  - `common_settings.py` - 通用配置，包括 LLM、数据库等设置
+  - `database/` - 数据库配置
+    - `database_manager.py` - 数据库连接管理
+
+- `handler/` - 业务逻辑处理
+  - `generic_query_handler.py` - 通用查询处理器，处理用户输入
+  - `workflow/` - 工作流程定义
+    - `query_process_workflow.py` - RAG 查询处理流程
+
+- `preprocess/` - 数据预处理
+  - `index_log.py` - 索引日志相关模型
+
+- `tests/` - 测试代码
+  - `conftest.py` - pytest 配置和通用 fixtures
+  - `test_rag_evaluation.py` - RAG 系统评估测试
+  - `data/` - 测试数据
+    - `evaluation_dataset.json` - 评估数据集
+  - `reports/` - 测试报告输出目录
+
+### 数据存储
+
+- **Qdrant DB**: 向量数据库，用于存储和检索文档向量
+  - 用途：相似性搜索，RAG 的检索部分
+
+- **PostgreSQL**: 关系型数据库
+  - 用途：存储对话历史、索引日志、评估指标等
+
+### 主要文件说明
+
+- `main.py` - 应用入口点，FastAPI 服务器配置
+- `requirements.txt` - 项目依赖
+- `.env` - 环境变量配置
+- `pytest.ini` - pytest 配置
+
+## 核心功能
+
+1. **RAG 检索增强生成**
+   - 文档向量化和存储
+   - 相似性检索
+   - 上下文增强的回答生成
+
+2. **对话管理**
+   - 会话历史记录
+   - 用户状态管理
+
+3. **评估系统**
+   - 回答质量评估
+   - HTML 报告生成
+
+## 配置说明
+
+主要配置项：
+- LLM 模型选择 (Google Gemini/Ollama)
+- 向量数据库连接
+- PostgreSQL 数据库连接
+- API 密钥配置
+
+## 测试
+
+运行测试：
 
 # support file formats
 - pdf
