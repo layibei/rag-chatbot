@@ -76,62 +76,49 @@ def generate_html_report(responses, evaluations):
     <html>
     <head>
         <title>RAG Evaluation Report</title>
-        <style>
-            body {
-                margin: 40px;
-            }
-            .question {
-                border: 1px solid black;
-                padding: 10px;
-                margin: 10px 0;
-            }
-            .answer {
-                margin: 10px 0;
-                padding: 10px;
-                background-color: #eee;
-            }
-            .evaluation {
-                margin: 10px 0;
-                padding: 10px;
-                background-color: #ddd;
-            }
-        </style>
     </head>
     <body>
         <h1>RAG Evaluation Report</h1>
-        <div>Generated at: {timestamp}</div>
+        <p>Generated at: {timestamp}</p>
+        <hr>
         {content}
     </body>
     </html>
     """
 
     question_template = """
-    <div class="question">
-        <h3>Question {index}: {question}</h3>
-        <div class="answer">
-            <strong>Expected Answer:</strong><br>
-            {expected_answer}
+    <div>
+        <h2>Question {index}: {question}</h2>
+        <div>
+            <h3>Expected Answer:</h3>
+            <p>{expected_answer}</p>
         </div>
-        <div class="answer">
-            <strong>Actual Answer:</strong><br>
-            {actual_answer}
+        <div>
+            <h3>Actual Answer:</h3>
+            <p>{actual_answer}</p>
         </div>
-        <div class="evaluation">
-            <strong>Evaluation:</strong><br>
-            {evaluation}
+        <div>
+            <h3>Evaluation:</h3>
+            <p>{evaluation}</p>
         </div>
+        <hr>
     </div>
     """
 
     content = []
     for i, (response, evaluation) in enumerate(zip(responses, evaluations), 1):
-        content.append(question_template.format(
-            index=i,
-            question=response["question"],
-            expected_answer=response["expected_answer"].replace("\n", "<br>"),
-            actual_answer=response["answer"].replace("\n", "<br>"),
-            evaluation=evaluation.replace("\n", "<br>")
-        ))
+        try:
+            content.append(question_template.format(
+                index=i,
+                question=response["question"],
+                expected_answer=response["expected_answer"].replace("\n", "<br>"),
+                actual_answer=response["answer"].replace("\n", "<br>"),
+                evaluation=evaluation.replace("\n", "<br>")
+            ))
+        except Exception as e:
+            print(f"\nError formatting content for question {i}: {e}")
+            print(f"Response data: {response}")
+            print(f"Evaluation: {evaluation}")
 
     from datetime import datetime
     report = html_template.format(
