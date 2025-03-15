@@ -5,12 +5,16 @@ from fastapi import FastAPI, Request
 from langchain.globals import set_debug
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.cors import CORSMiddleware
+from starlette.responses import RedirectResponse
 
 from api.chat_history_routes import router as chat_history_router
 from api.chat_routes import router as chat_router
+from api.health_routes import router as health_router
 from config.common_settings import CommonConfig
 from utils.id_util import get_id
 from utils.logging_util import logger, set_context, clear_context
+from utils.audit_logger import AuditLogger
+from config.database.database_manager import DatabaseManager
 
 # Global config instance
 base_config = CommonConfig()
@@ -112,7 +116,12 @@ async def lifespan(app: FastAPI):
         logger.info("Shutting down application...")
 
 
-app = FastAPI(lifespan=lifespan)
+app = FastAPI(
+    title="RAG Chatbot API",
+    description="API for RAG Chatbot",
+    version="0.1.0",
+    lifespan=lifespan
+)
 app.add_middleware(LoggingContextMiddleware)
 
 # Add CORS middleware
@@ -127,10 +136,21 @@ app.add_middleware(
 
 app.include_router(chat_history_router, prefix="/chat")
 app.include_router(chat_router, prefix="/chat")
+app.include_router(health_router, prefix="/health")
 
+# 应用启动前初始化
+@app.on_event("startup")
+async def startup_event():
+    """应用启动时执行"""
+    # 初始化数据库表
+    config = CommonConfig()
+    AuditLogger.init_database(config)
+    logger.info("Application started")
+
+@app.get("/", include_in_schema=False)
+async def root():
+    return RedirectResponse(url="/docs")
 
 if __name__ == "__main__":
     # set_debug(True)
-    import uvicorn
-
-    uvicorn.run(app, host="0.0.0.0", port=8080)
+    uvicorn.run(app, host="0.0.0.0", port=8080, reload=True)

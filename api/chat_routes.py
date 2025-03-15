@@ -9,9 +9,13 @@ from config.common_settings import CommonConfig
 from handler.generic_query_handler import QueryHandler
 from utils.id_util import get_id
 from utils.logging_util import logger
+from config.database.database_manager import DatabaseManager
+from utils.audit_logger import get_audit_logger
 
 router = APIRouter(tags=['chat'])
 base_config = CommonConfig()
+db_manager = DatabaseManager(base_config.get_postgres_uri())
+audit_logger = get_audit_logger(db_manager)
 
 
 class QueryRequest(BaseModel):
@@ -32,18 +36,51 @@ def process_query(
         authorization: str | None = Header(default=None)
 ):
     logger.info(f"Received query: {request.user_input}")
+    
+    # 记录请求开始
+    start_time = audit_logger.start_step(
+        x_request_id, x_user_id, x_session_id, 
+        "chat_completion", {"user_input": request.user_input}
+    )
 
     try:
+        # 记录初始化处理器
+        handler_start = audit_logger.start_step(
+            x_request_id, x_user_id, x_session_id, "initialize_handler"
+        )
+        
         query_handler = QueryHandler(
             llm=base_config.get_model("chatllm"),
             vector_store=base_config.get_vector_store(),
             config=base_config
         )
+        
+        audit_logger.end_step(
+            x_request_id, x_user_id, x_session_id, 
+            "initialize_handler", handler_start
+        )
+        
+        # 记录处理查询
+        query_start = audit_logger.start_step(
+            x_request_id, x_user_id, x_session_id, "handle_query"
+        )
+        
         result = query_handler.handle(
             user_input=request.user_input,
             user_id=x_user_id,
             session_id=x_session_id,
             request_id=x_request_id
+        )
+        
+        audit_logger.end_step(
+            x_request_id, x_user_id, x_session_id, 
+            "handle_query", query_start
+        )
+
+        # 记录请求结束
+        audit_logger.end_step(
+            x_request_id, x_user_id, x_session_id, 
+            "chat_completion", start_time
         )
 
         return JSONResponse(content=QueryResponse(
@@ -53,6 +90,11 @@ def process_query(
 
     except ValueError as e:
         logger.error(traceback.format_exc())
+        # 记录错误
+        audit_logger.error_step(
+            x_request_id, x_user_id, x_session_id, 
+            "chat_completion", e
+        )
         return JSONResponse(
             content={
                 "error_message": str(e),
@@ -62,6 +104,11 @@ def process_query(
         )
     except Exception as e:
         logger.error(traceback.format_exc())
+        # 记录错误
+        audit_logger.error_step(
+            x_request_id, x_user_id, x_session_id, 
+            "chat_completion", e
+        )
         return JSONResponse(
             content={
                 "error_message": str(e),
