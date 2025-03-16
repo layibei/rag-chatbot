@@ -35,11 +35,14 @@ app:
       type: "qdrant"
       # type: "redis"
       # type: "pgvector"
+      collection_name: "rag_docs"
+      cache_collection_name: "response_cache"
     graph_store:
       enabled: true
       type: "neo4j"
   query_agent:
     search:
+      provider: "duckduckgo"
       rerank_enabled: true
       query_expansion_enabled: true
       graph_search_enabled: true
@@ -54,6 +57,12 @@ app:
     output:
       generate_suggested_documents: true
       generate_citations: true
+      format:
+        default: markdown
+        detect_from_query: true
+        include_metadata: true
+    cache:
+      enabled: true
     metrics:
       enabled: true
       store_in_db: true

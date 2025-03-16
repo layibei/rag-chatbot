@@ -5,7 +5,8 @@ from functools import lru_cache
 import dotenv
 import yaml
 from spacy.language import Language
-from utils.logging_util import logger
+from utils.logger_init import logger
+from utils.async_mdc import setup_mdc
 
 # Get the absolute path of the current file
 CURRENT_FILE_PATH = os.path.abspath(__file__)
@@ -15,6 +16,8 @@ BASE_DIR = os.path.dirname(CURRENT_FILE_PATH)
 
 class CommonConfig:
     def __init__(self, config_path: str = None):
+        # Initialize MDC handling
+        setup_mdc()
         self.logger = logger
         dotenv_path = os.path.join(BASE_DIR, '..', '.env')
         if os.path.exists(dotenv_path):
@@ -201,12 +204,20 @@ class CommonConfig:
             "output": {
                 "generate_suggested_documents": query_agent_config.get("output", {}).get("generate_suggested_documents",
                                                                                          False),
-                "generate_citations": query_agent_config.get("output", {}).get("generate_suggested_documents", False)
+                "generate_citations": query_agent_config.get("output", {}).get("generate_suggested_documents", False),
+                "format": {
+                    "default": query_agent_config.get("output", {}).get("format", {}).get("default", "markdown"),
+                    "detect_from_query": query_agent_config.get("output", {}).get("format", {}).get("detect_from_query", True),
+                    "include_metadata": query_agent_config.get("output", {}).get("format", {}).get("include_metadata", True),
+                }
             },
             "metrics": {
                 "enabled": query_agent_config.get("metrics", {}).get("enabled", True),
                 "store_in_db": query_agent_config.get("metrics", {}).get("store_in_db", True),
                 "log_level": query_agent_config.get("metrics", {}).get("log_level", "INFO")
+            },
+            "cache": {
+                "enabled": query_agent_config.get("cache", {}).get("enabled", False),
             }
         }
 
@@ -224,18 +235,21 @@ class CommonConfig:
             return default_value
 
     @lru_cache(maxsize=1)
-    def get_vector_store(self) -> 'VectorStore':
+    def get_vector_store(self, isForCache = False) -> 'VectorStore':
         """Get vector store"""
         self.logger.info("Get vector store.")
         self.check_config(self.config, ["app", "embedding", "vector_store"], "app vector_store is not found.")
         vector_store_type = self.config["app"]["embedding"]["vector_store"].get("type")
+        collection_name = self.config["app"]["embedding"]["vector_store"].get("collection_name")
+        if isForCache and self.config["app"]["query_agent"]["cache"]["enabled"]:
+            collection_name = self.config["app"]["embedding"]["vector_store"].get("cache_collection_name")
 
         if vector_store_type == "qdrant":
             from langchain_qdrant import QdrantVectorStore
             return QdrantVectorStore.from_documents(
                 documents=[],
                 embedding=self.get_model("embedding"),
-                collection_name="rag_docs",
+                collection_name=collection_name,
                 url=os.environ["QDRANT_URL"],
                 api_key=os.environ["QDRANT_API_KEY"],
             )
@@ -243,7 +257,7 @@ class CommonConfig:
         elif vector_store_type == "redis":
             from langchain_redis import RedisConfig, RedisVectorStore
             config = RedisConfig(
-                index_name="rag_docs",
+                index_name=collection_name,
                 redis_url=os.environ["REDIS_URL"],
                 distance_metric="COSINE",  # Options: COSINE, L2, IP
             )
@@ -253,7 +267,7 @@ class CommonConfig:
             from langchain_postgres import PGVector
             return PGVector(
                 embeddings=self.get_model("embedding"),
-                collection_name="rag_docs",
+                collection_name=collection_name,
                 connection=os.environ["POSTGRES_URI"],
                 use_jsonb=True,
             )
@@ -408,6 +422,10 @@ class CommonConfig:
         except Exception as e:
             self.logger.error(f"Error getting logging config: {str(e)}")
             return "INFO" if package_name else {"root": "INFO"}
+        
+    def get_env_variable(self, key: str) -> str:
+        """Get environment variable"""
+        return os.environ.get(key)
 
 
 class ConfigError(Exception):
