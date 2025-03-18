@@ -67,13 +67,13 @@ class ResponseFormatter:
 
     def _detect_format_from_query(self, query: str) -> OutputFormat:
         """Detect desired format from user query, default to markdown"""
-        query = query.lower()
+        # query = query.lower()
         
         # Check for explicit format indicators
-        for format_type, indicators in self.format_indicators.items():
-            if any(indicator in query for indicator in indicators):
-                self.logger.debug(f"Detected {format_type} format from query: {query}")
-                return format_type
+        # for format_type, indicators in self.format_indicators.items():
+        #     if any(indicator in query for indicator in indicators):
+        #         self.logger.debug(f"Detected {format_type} format from query: {query}")
+        #         return format_type
 
         # Default to markdown
         return "markdown"

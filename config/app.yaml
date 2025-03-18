@@ -61,8 +61,6 @@ app:
         default: markdown
         detect_from_query: true
         include_metadata: true
-    cache:
-      enabled: true
     metrics:
       enabled: true
       store_in_db: true

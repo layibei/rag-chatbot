@@ -407,7 +407,7 @@ class QueryProcessWorkflow:
         # Process document citations
         documents = state.get("documents", [])
         for doc in documents:
-            if hasattr(doc, 'metadata') and doc.metadata.get('source'):
+            if hasattr(doc, 'metadata') and doc.metadata.get('source') and doc.metadata.get("source").startswith(('http', 'https')):
                 source = doc.metadata['source']
                 # Skip if we've already seen this source
                 if source in seen_sources:
