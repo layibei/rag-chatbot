@@ -6,8 +6,6 @@ from typing import List
 from langchain_core.documents import Document
 from langchain_core.language_models import BaseChatModel
 from langchain_core.vectorstores import VectorStore
-from rank_bm25 import BM25Okapi
-from sentence_transformers import CrossEncoder
 
 from config.common_settings import CommonConfig
 from handler.store.graph_store_helper import GraphStoreHelper
