@@ -91,11 +91,17 @@ class AuditLogger:
     def end_step(self, request_id: str, user_id: str, session_id: str, 
                 step: str, start_time: float, details: Optional[Dict[str, Any]] = None):
         """记录步骤结束"""
-        execution_time = time.time() - start_time
+        execution_time = int(time.time() - start_time)  # 转换为整数秒
         if details is None:
             details = {}
-        details["execution_time"] = execution_time
-        self.log_step(request_id, user_id, session_id, step, "END", details)
+        
+        # 将执行时间放在详情的最前面
+        execution_details = {
+            "execution_time": execution_time
+        }
+        execution_details.update(details)  # 添加其他详情
+        
+        self.log_step(request_id, user_id, session_id, step, "END", execution_details)
     
     def error_step(self, request_id: str, user_id: str, session_id: str, 
                   step: str, error: Exception, details: Optional[Dict[str, Any]] = None):
