@@ -22,6 +22,8 @@ from handler.tools.web_search_tool import WebSearch
 from handler.workflow import RequestState
 from utils.logging_util import logger
 from prompts.constants import PromptManager, PromptTemplate
+from utils.audit_logger import get_audit_logger
+from config.database.database_manager import DatabaseManager
 
 
 @dataclass
@@ -73,6 +75,10 @@ class QueryProcessWorkflow:
         self.graph = self._setup_graph()
         self.max_retries = config.get_query_config("search.max_retries", 1)
         self.fallback_response = "Sorry, i dont have sufficient information to answer your question."
+        
+        # 初始化审计日志记录器
+        db_manager = DatabaseManager(config.get_postgres_uri())
+        self.audit_logger = get_audit_logger(db_manager)
 
     def _setup_graph(self) -> StateGraph:
         memory = MemorySaver()
@@ -156,72 +162,188 @@ class QueryProcessWorkflow:
     def _rewrite_query(self, state: RequestState) -> RequestState:
         """Rewrite query for better accuracy"""
         self.logger.info("Rewriting query for better accuracy")
-        rewritten_query = self.query_rewriter.run(state)
-        rewrite_attempts = state.get("rewrite_attempts", 0)
-        state["rewrite_attempts"] = rewrite_attempts + 1
-
-        state["rewritten_query"] = rewritten_query
-
-        # set below as empty
-        state["response"] = None
-        state["web_results"] = []
-        state["documents"] = []
-        state["output_format"] = None
-
+        
+        # 记录步骤开始
+        request_id = state.get("request_id", "unknown")
+        user_id = state.get("user_id", "unknown")
+        session_id = state.get("session_id", "unknown")
+        rewrite_start = self.audit_logger.start_step(
+            request_id, user_id, session_id, 
+            "rewrite_query", {"original_query": state.get("user_input", "")}
+        )
+        
+        try:
+            # 原有的处理逻辑
+            rewritten_query = self.query_rewriter.run(state)
+            rewrite_attempts = state.get("rewrite_attempts", 0)
+            state["rewrite_attempts"] = rewrite_attempts + 1
+            state["rewritten_query"] = rewritten_query
+            
+            # set below as empty
+            state["response"] = None
+            state["web_results"] = []
+            state["documents"] = []
+            state["output_format"] = None
+            
+            # 记录步骤结束
+            self.audit_logger.end_step(
+                request_id, user_id, session_id, 
+                "rewrite_query", rewrite_start, {
+                    "rewritten_query": rewritten_query,
+                    "attempt_number": rewrite_attempts + 1,
+                    "status": "success"
+                }
+            )
+            
+        except Exception as e:
+            # 记录错误
+            self.audit_logger.error_step(
+                request_id, user_id, session_id, 
+                "rewrite_query", e, {
+                    "status": "error",
+                    "error_type": type(e).__name__
+                }
+            )
+            raise
+            
         return state
 
     def _web_search(self, state: RequestState) -> RequestState:
         """Perform web search"""
         self.logger.info("Performing web search")
         query = state.get("rewritten_query", "")
-        self.logger.debug(f"Web search query: {query}")
-        results = self.web_search.run(query)
-        state["web_results"] = results
-        state["web_search_attempts"] = state.get("web_search_attempts", 0) + 1
-        # set it as empty list
-        state["documents"] = []
-        state["response"] = None
+        
+        # 记录步骤开始
+        request_id = state.get("request_id", "unknown")
+        user_id = state.get("user_id", "unknown")
+        session_id = state.get("session_id", "unknown")
+        web_search_start = self.audit_logger.start_step(
+            request_id, user_id, session_id, 
+            "web_search", {"query": query}
+        )
+        
+        try:
+            # 原有的处理逻辑
+            self.logger.debug(f"Web search query: {query}")
+            results = self.web_search.run(query)
+            state["web_results"] = results
+            state["web_search_attempts"] = state.get("web_search_attempts", 0) + 1
+            # set it as empty list
+            state["documents"] = []
+            state["response"] = None
+            
+            # 记录步骤结束
+            self.audit_logger.end_step(
+                request_id, user_id, session_id, 
+                "web_search", web_search_start, {
+                    "result_count": len(results),
+                    "status": "success"
+                }
+            )
+            
+        except Exception as e:
+            # 记录错误
+            self.audit_logger.error_step(
+                request_id, user_id, session_id, 
+                "web_search", e, {
+                    "status": "error",
+                    "error_type": type(e).__name__
+                }
+            )
+            raise
+            
         return state
 
     def _retrieve_documents(self, state: RequestState) -> RequestState:
         """Retrieve relevant documents"""
         self.logger.info("Retrieving relevant documents")
         query = state.get("rewritten_query", "")
-        self.logger.debug(f"Retrieving documents: {query}")
-
-        # get search config
-        search_config = self.config.get_query_config("search")
-        documents = self.doc_retriever.run(query, relevance_threshold=search_config.get("relevance_threshold", 0.7),
+        
+        # 记录步骤开始
+        request_id = state.get("request_id", "unknown")
+        user_id = state.get("user_id", "unknown")
+        session_id = state.get("session_id", "unknown")
+        retrieve_start = self.audit_logger.start_step(
+            request_id, user_id, session_id, 
+            "retrieve_documents", {"query": query}
+        )
+        
+        try:
+            # 原有的处理逻辑
+            search_config = self.config.get_query_config("search")
+            documents = self.doc_retriever.run(query, relevance_threshold=search_config.get("relevance_threshold", 0.7),
                                            max_documents=search_config.get("top_k", 5))
-        state["documents"] = documents
-
-        # set status as empty
-        state["web_results"] = []
-        state["response"] = None
-
+            state["documents"] = documents
+            
+            # set status as empty
+            state["web_results"] = []
+            state["response"] = None
+            
+            # 记录步骤结束
+            self.audit_logger.end_step(
+                request_id, user_id, session_id, 
+                "retrieve_documents", retrieve_start, {
+                    "document_count": len(documents),
+                    "document_sources": [doc.metadata.get("source", "unknown") for doc in documents[:3]] if documents else [],
+                    "status": "success"
+                }
+            )
+            
+        except Exception as e:
+            # 记录错误
+            self.audit_logger.error_step(
+                request_id, user_id, session_id, 
+                "retrieve_documents", e, {
+                    "status": "error",
+                    "error_type": type(e).__name__
+                }
+            )
+            raise
+            
         return state
 
     def _generate_response(self, state: RequestState) -> RequestState:
         """Generate response strictly based on available sources"""
-        query = state["rewritten_query"]
-        documents = state.get("documents", [])
-        web_results = state.get("web_results", [])
-
-        sources = []
-        if documents:
-            sources.extend([f"Document: {doc.page_content}" for doc in documents])
-        if web_results:
-            sources.extend([f"Web Result: {result}" for result in web_results])
-
-        self.logger.info(f"Generating response for query: {query}")
-
-        if not sources and state.get("rewrite_attempts", 0) >= self.max_retries:
-            self.logger.info("No documents found and query rewrite attempts exceeded, returning fallback response")
-            state["response"] = self.fallback_response
-            state["fallback_response"] = True
-            return state
-
+        query = state.get("rewritten_query", "")
+        
+        # 记录步骤开始
+        request_id = state.get("request_id", "unknown")
+        user_id = state.get("user_id", "unknown")
+        session_id = state.get("session_id", "unknown")
+        generate_start = self.audit_logger.start_step(
+            request_id, user_id, session_id, 
+            "generate_response", {"query": query}
+        )
+        
         try:
+            # 原有的处理逻辑
+            documents = state.get("documents", [])
+            web_results = state.get("web_results", [])
+            
+            sources = []
+            if documents:
+                sources.extend([f"Document: {doc.page_content}" for doc in documents])
+            if web_results:
+                sources.extend([f"Web Result: {result}" for result in web_results])
+            
+            self.logger.info(f"Generating response for query: {query}")
+            
+            if not sources and state.get("rewrite_attempts", 0) >= self.max_retries:
+                self.logger.info("No documents found and query rewrite attempts exceeded, returning fallback response")
+                state["response"] = self.fallback_response
+                state["fallback_response"] = True
+                
+                # 记录步骤结束（使用回退响应）
+                self.audit_logger.end_step(
+                    request_id, user_id, session_id, 
+                    "generate_response", generate_start, {
+                        "used_fallback": True,
+                        "status": "success"
+                    }
+                )
+                
+                return state
+            
             # Get and format prompt using PromptManager
             prompt = self.prompt_manager.format_prompt(
                 PromptTemplate.GENERATE_RESPONSE,
@@ -232,24 +354,88 @@ class QueryProcessWorkflow:
             response = self.llm.invoke([HumanMessage(content=prompt)]).content
             state["response"] = response
             
+            # 记录步骤结束
+            self.audit_logger.end_step(
+                request_id, user_id, session_id, 
+                "generate_response", generate_start, {
+                    "response_length": len(response),
+                    "response_preview": response[:100] + "..." if len(response) > 100 else response,
+                    "used_fallback": False,
+                    "status": "success"
+                }
+            )
+            
         except Exception as e:
             self.logger.error(f"Error generating response: {str(e)}")
             state["response"] = self.fallback_response
             state["fallback_response"] = True
             
+            # 记录错误
+            self.audit_logger.error_step(
+                request_id, user_id, session_id, 
+                "generate_response", e, {
+                    "used_fallback": True,
+                    "status": "error",
+                    "error_type": type(e).__name__
+                }
+            )
+            
         return state
 
-    def _grade_response(self, state: RequestState) -> str:
+    def _grade_response(self, state: RequestState) -> RequestState:
         """Grade response relevance and completeness"""
         self.logger.info("Grading response relevance and completeness")
-        if self._is_fallback_response(state):
-            self.logger.debug("Fallback response detected, returning empty response")
-            return state
-
-        score = self.response_grader.run(state)
-        state["response_grade_score"] = score
-
-        return state;
+        
+        # 记录步骤开始
+        request_id = state.get("request_id", "unknown")
+        user_id = state.get("user_id", "unknown")
+        session_id = state.get("session_id", "unknown")
+        grade_start = self.audit_logger.start_step(
+            request_id, user_id, session_id, 
+            "grade_response", {}
+        )
+        
+        try:
+            # 原有的处理逻辑
+            if self._is_fallback_response(state):
+                self.logger.debug("Fallback response detected, returning empty response")
+                
+                # 记录步骤结束（使用回退响应）
+                self.audit_logger.end_step(
+                    request_id, user_id, session_id, 
+                    "grade_response", grade_start, {
+                        "is_fallback": True,
+                        "status": "success"
+                    }
+                )
+                
+                return state
+            
+            score = self.response_grader.run(state)
+            state["response_grade_score"] = score
+            
+            # 记录步骤结束
+            self.audit_logger.end_step(
+                request_id, user_id, session_id, 
+                "grade_response", grade_start, {
+                    "score": score,
+                    "is_fallback": False,
+                    "status": "success"
+                }
+            )
+            
+        except Exception as e:
+            # 记录错误
+            self.audit_logger.error_step(
+                request_id, user_id, session_id, 
+                "grade_response", e, {
+                    "status": "error",
+                    "error_type": type(e).__name__
+                }
+            )
+            raise
+            
+        return state
 
     def _is_fallback_response(self, state: RequestState) -> bool:
         """Check if fallback response is needed"""
@@ -310,6 +496,16 @@ class QueryProcessWorkflow:
     def _generate_suggested_questions(self, state: RequestState) -> RequestState:
         """Generate contextually relevant follow-up questions"""
         self.logger.info("Generating suggested questions")
+        
+        # 记录步骤开始
+        request_id = state.get("request_id", "unknown")
+        user_id = state.get("user_id", "unknown")
+        session_id = state.get("session_id", "unknown")
+        suggest_start = self.audit_logger.start_step(
+            request_id, user_id, session_id, 
+            "generate_suggested_questions", {}
+        )
+        
         try:
             if not self.config.get_query_config("output.generate_suggested_documents",
                                                 False) or self._is_fallback_response(state):
@@ -385,107 +581,193 @@ class QueryProcessWorkflow:
                 self.logger.error(f"JSON parsing error: {str(e)}\nResponse was: {result}")
                 state["suggested_questions"] = []
 
+            # 记录步骤结束
+            self.audit_logger.end_step(
+                request_id, user_id, session_id, 
+                "generate_suggested_questions", suggest_start, {
+                    "question_count": len(state.get("suggested_questions", [])),
+                    "status": "success"
+                }
+            )
+            
             return state
 
         except Exception as e:
             self.logger.error(f"Error generating suggested questions: {str(e)}")
             state["suggested_questions"] = []
+            # 记录错误
+            self.audit_logger.error_step(
+                request_id, user_id, session_id, 
+                "generate_suggested_questions", e, {
+                    "status": "error",
+                    "error_type": type(e).__name__
+                }
+            )
             return state
 
     def _generate_citations(self, state: RequestState) -> RequestState:
         """Generate citations from document and web search results"""
         self.logger.info("Generating citations")
+        
+        # 记录步骤开始
+        request_id = state.get("request_id", "unknown")
+        user_id = state.get("user_id", "unknown")
+        session_id = state.get("session_id", "unknown")
+        citation_start = self.audit_logger.start_step(
+            request_id, user_id, session_id, 
+            "generate_citations", {}
+        )
+        
+        try:
+            # need to check if it's enabled or not, if not return state.
+            if not self.config.get_query_config("output.generate_citations", False) or self._is_fallback_response(state):
+                self.logger.info("Citation generation is disabled")
+                return state
 
-        # need to check if it's enabled or not, if not return state.
-        if not self.config.get_query_config("output.generate_citations", False) or self._is_fallback_response(state):
-            self.logger.info("Citation generation is disabled")
+            citations = []
+            seen_sources = set()  # Track unique sources
+
+            # Process document citations
+            documents = state.get("documents", [])
+            for doc in documents:
+                if hasattr(doc, 'metadata') and doc.metadata.get('source') and doc.metadata.get("source").startswith(('http', 'https')):
+                    source = doc.metadata['source']
+                    # Skip if we've already seen this source
+                    if source in seen_sources:
+                        continue
+                    seen_sources.add(source)
+                    citations.append(Citation(
+                        source=source,
+                        content="",  # First 200 chars as excerpt
+                        confidence=doc.metadata.get('score', 0.0)
+                    ))
+
+            # Process web search citations
+            web_results = state.get("web_results", [])
+            for result in web_results:
+                if isinstance(result, dict) and result.get('url'):
+                    source = result['url']
+                    # Skip if we've already seen this source
+                    if source in seen_sources:
+                        continue
+                    seen_sources.add(source)
+                    citations.append(Citation(
+                        source=source,
+                        content="",  # Empty content since we don't need it
+                        confidence=result.get('relevance_score', 0.0)
+                    ))
+
+            # Sort citations by confidence score
+            citations.sort(key=lambda x: x.confidence, reverse=True)
+            state['citations'] = [x.source for x in citations[:3]]
+            
+            # 记录步骤结束
+            self.audit_logger.end_step(
+                request_id, user_id, session_id, 
+                "generate_citations", citation_start, {
+                    "citation_count": len(state.get("citations", [])),
+                    "status": "success"
+                }
+            )
+            
             return state
 
-        citations = []
-        seen_sources = set()  # Track unique sources
-
-        # Process document citations
-        documents = state.get("documents", [])
-        for doc in documents:
-            if hasattr(doc, 'metadata') and doc.metadata.get('source') and doc.metadata.get("source").startswith(('http', 'https')):
-                source = doc.metadata['source']
-                # Skip if we've already seen this source
-                if source in seen_sources:
-                    continue
-                seen_sources.add(source)
-                citations.append(Citation(
-                    source=source,
-                    content="",  # First 200 chars as excerpt
-                    confidence=doc.metadata.get('score', 0.0)
-                ))
-
-        # Process web search citations
-        web_results = state.get("web_results", [])
-        for result in web_results:
-            if isinstance(result, dict) and result.get('url'):
-                source = result['url']
-                # Skip if we've already seen this source
-                if source in seen_sources:
-                    continue
-                seen_sources.add(source)
-                citations.append(Citation(
-                    source=source,
-                    content="",  # Empty content since we don't need it
-                    confidence=result.get('relevance_score', 0.0)
-                ))
-
-        # Sort citations by confidence score
-        citations.sort(key=lambda x: x.confidence, reverse=True)
-        state['citations'] = [x.source for x in citations[:3]]
-
-        return state
+        except Exception as e:
+            # 记录错误
+            self.audit_logger.error_step(
+                request_id, user_id, session_id, 
+                "generate_citations", e, {
+                    "status": "error",
+                    "error_type": type(e).__name__
+                }
+            )
+            return state
 
     def invoke(self, user_input: str, user_id: str, request_id: str, session_id: str, original_query: str) -> Dict[
         str, Any]:
         """
         Invoke the workflow with the given input
         """
-        thread = {
-            'configurable': {'thread_id': 1}
-        }
-
-        # Initialize complete state with all fields that will be modified
-        initial_state = {
-            # Required fields
-            "user_id": user_id,
-            "session_id": session_id,
-            "request_id": request_id,
-            "user_input": user_input,
-            "original_query": original_query,
-
-            # Initialize fields that will be modified
-            "rewritten_query": original_query,
-            "documents": [],
-            "web_results": [],
-            "response": None,
-            "hallucination_risk": None,
-            "confidence_score": 0.0,
-            "output_format": "",
-            "messages": [],
-
-            # Initialize counters
-            "rewrite_attempts": 0,
-            "web_search_attempts": 0,
-            "enhance_attempts": 0
-        }
-
-        for s in self.graph.stream(initial_state, thread):
-            # self.logger.info(s)
-            pass
-
-        final_state = self.graph.get_state(thread)
-        self.logger.debug(f"final response state:{final_state}")
-
-        response = QueryResponse(
-            answer=final_state.values.get("response", ""),
-            citations=final_state.values.get("citations", []),
-            suggested_questions=final_state.values.get("suggested_questions", []),
-            metadata={"output_format": final_state.values.get("output_format", "")}
+        # 记录工作流开始
+        workflow_start = self.audit_logger.start_step(
+            request_id, user_id, session_id, 
+            "query_workflow", {"user_input": user_input, "original_query": original_query}
         )
-
-        return response.to_dict()  # Convert to dictionary before returning
+        
+        try:
+            # 原有的处理逻辑
+            thread = {
+                'configurable': {'thread_id': 1}
+            }
+            
+            # Initialize complete state with all fields that will be modified
+            initial_state = {
+                # Required fields
+                "user_id": user_id,
+                "session_id": session_id,
+                "request_id": request_id,
+                "user_input": user_input,
+                "original_query": original_query,
+                
+                # Initialize fields that will be modified
+                "rewritten_query": original_query,
+                "documents": [],
+                "web_results": [],
+                "response": None,
+                "hallucination_risk": None,
+                "confidence_score": 0.0,
+                "output_format": "",
+                "messages": [],
+                
+                # Initialize counters
+                "rewrite_attempts": 0,
+                "web_search_attempts": 0,
+                "enhance_attempts": 0
+            }
+            
+            for s in self.graph.stream(initial_state, thread):
+                # self.logger.info(s)
+                pass
+            
+            final_state = self.graph.get_state(thread)
+            self.logger.debug(f"final response state:{final_state}")
+            
+            response = QueryResponse(
+                answer=final_state.values.get("response", ""),
+                citations=final_state.values.get("citations", []),
+                suggested_questions=final_state.values.get("suggested_questions", []),
+                metadata={"output_format": final_state.values.get("output_format", "")}
+            )
+            
+            # 记录工作流结束
+            self.audit_logger.end_step(
+                request_id, user_id, session_id, 
+                "query_workflow", workflow_start, {
+                    "status": "success",
+                    "response_summary": {
+                        "has_answer": bool(final_state.values.get("response", "")),
+                        "has_citations": bool(final_state.values.get("citations", [])),
+                        "has_suggested_questions": bool(final_state.values.get("suggested_questions", [])),
+                        "answer_length": len(final_state.values.get("response", "")),
+                        "citation_count": len(final_state.values.get("citations", [])),
+                        "suggested_question_count": len(final_state.values.get("suggested_questions", [])),
+                        "output_format": final_state.values.get("output_format", ""),
+                        "rewrite_attempts": final_state.values.get("rewrite_attempts", 0),
+                        "web_search_attempts": final_state.values.get("web_search_attempts", 0)
+                    }
+                }
+            )
+            
+            return response.to_dict()  # Convert to dictionary before returning
+            
+        except Exception as e:
+            # 记录工作流错误
+            self.audit_logger.error_step(
+                request_id, user_id, session_id, 
+                "query_workflow", e, {
+                    "error_location": "workflow_process",
+                    "error_type": type(e).__name__
+                }
+            )
+            self.logger.error(f"Error in query workflow: {str(e)}")
+            raise
