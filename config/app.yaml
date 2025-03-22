@@ -2,7 +2,8 @@ app:
   models:
     embedding:
       type: "huggingface"
-      model: "BAAI/bge-large-en-v1.5"
+      model: "BAAI/bge-reranker-base"
+#      model: "BAAI/bge-large-en-v1.5"
     llm:
       type: "gemini"
       model: "gemini-2.0-flash-exp"
@@ -21,16 +22,21 @@ app:
     vector_store:
       enabled: true
       type: "qdrant"
+      # type: "redis"
+      # type: "pgvector"
+      collection_name: "rag_docs"
+      cache_collection_name: "response_cache"
     graph_store:
       enabled: true
       type: "neo4j"
   query_agent:
     search:
-      rerank_enabled: false
+      provider: "duckduckgo"
+      rerank_enabled: true
       query_expansion_enabled: true
       graph_search_enabled: true
       hypothetical_answer_enabled: true
-      web_search_enabled: false
+      web_search_enabled: true
       max_retries: 1 # max retry for query rewrite
       top_k: 5 # for retrieval top n documents, equal to max_documents
       relevance_threshold: 0.6 # for filter out low relevance documents
@@ -38,8 +44,12 @@ app:
     grading: # for fact checking, the lower of the score, the higher risk of hallucination
       minimum_score: 0.7
     output:
-      generate_suggested_documents: false
-      generate_citations: false
+      generate_suggested_documents: true
+      generate_citations: true
+      format:
+        default: markdown
+        detect_from_query: true
+        include_metadata: true
     metrics:
       enabled: true
       store_in_db: true

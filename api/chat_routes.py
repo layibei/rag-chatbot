@@ -2,6 +2,7 @@ import traceback
 from typing import Any, Dict
 
 from fastapi import APIRouter, Header
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from starlette.responses import JSONResponse
 
@@ -134,6 +135,61 @@ def process_query(
         )
         return JSONResponse(
             content=error_response,
+            status_code=500,
+            headers={"X-User-Id": x_user_id, "X-Session-Id": x_session_id, "X-Request-Id": x_request_id}
+        )
+
+
+@router.post("/stream")
+async def stream_query(
+        request: QueryRequest,
+        x_user_id: str = Header(...),
+        x_session_id: str = Header(default=None),
+        x_request_id: str = Header(default=None),
+        authorization: str | None = Header(default=None)
+):
+    """Stream chat completion responses"""
+    logger.info(f"Received streaming query: {request.user_input}")
+
+    try:
+        query_handler = QueryHandler(
+            llm=base_config.get_model("chatllm"),
+            vector_store=base_config.get_vector_store(),
+            config=base_config
+        )
+
+        return StreamingResponse(
+            query_handler.handle_stream(
+                user_input=request.user_input,
+                user_id=x_user_id,
+                session_id=x_session_id,
+                request_id=x_request_id
+            ),
+            media_type='text/event-stream',
+            headers={
+                "X-User-Id": x_user_id,
+                "X-Session-Id": x_session_id,
+                "X-Request-Id": x_request_id
+            }
+        )
+
+    except ValueError as e:
+        logger.error(traceback.format_exc())
+        return JSONResponse(
+            content={
+                "error_message": str(e),
+                "error_code": "BAD_REQUEST"
+            },
+            status_code=400,
+            headers={"X-User-Id": x_user_id, "X-Session-Id": x_session_id, "X-Request-Id": x_request_id}
+        )
+    except Exception as e:
+        logger.error(traceback.format_exc())
+        return JSONResponse(
+            content={
+                "error_message": str(e),
+                "error_code": "INTERNAL_SERVER_ERROR"
+            },
             status_code=500,
             headers={"X-User-Id": x_user_id, "X-Session-Id": x_session_id, "X-Request-Id": x_request_id}
         )

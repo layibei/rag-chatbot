@@ -49,13 +49,27 @@ def clear_context():
     except Exception as e:
        logger.error(f"Error clearing context: {str(e)}")
 
+def truncate_id(id_str: str, length: int = 32) -> str:
+    """Truncate ID strings to a specified length while keeping the prefix"""
+    if not id_str or len(id_str) <= length:
+        return id_str
+    
+    # Keep the prefix (e.g., 'sess_' or 'req_') and truncate the rest
+    parts = id_str.split('_', 1)
+    if len(parts) > 1:
+        return f"{parts[0]}_{parts[1][:length]}"
+    return id_str[:length]
 
-class SafeContextFilter:
+class SimplifiedContextFilter:
     def __call__(self, record):
         try:
-            # Get current context and update record's extra dict
             context = get_context()
-            record["extra"].update(context)
+            filtered_context = {
+                'user_id': context.get('user_id', 'unknown'),
+                'session_id': truncate_id(context.get('session_id', 'unknown')),
+                'request_id': truncate_id(context.get('request_id', 'unknown'))
+            }
+            record["extra"].update(filtered_context)
             return True
         except Exception as e:
             logger.error(f"Error in context filter: {str(e)}")
@@ -105,7 +119,7 @@ def configure_logger(log_file="app.log", max_bytes=10 * 1024 * 1024, backup_coun
     logger.add(
         sink=log_file,
         format=log_format,
-        filter=lambda record: SafeContextFilter()(record) and log_filter(record),
+        filter=lambda record: SimplifiedContextFilter()(record) and log_filter(record),
         colorize=False,
         enqueue=True,
         rotation=max_bytes,
@@ -118,7 +132,7 @@ def configure_logger(log_file="app.log", max_bytes=10 * 1024 * 1024, backup_coun
     logger.add(
         sink=sys.stdout,
         format=log_format,
-        filter=lambda record: SafeContextFilter()(record) and log_filter(record),
+        filter=lambda record: SimplifiedContextFilter()(record) and log_filter(record),
         colorize=True,
         enqueue=True,
         catch=True,
