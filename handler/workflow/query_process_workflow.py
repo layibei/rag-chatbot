@@ -76,7 +76,7 @@ class QueryProcessWorkflow:
         self.max_retries = config.get_query_config("search.max_retries", 1)
         self.fallback_response = "Sorry, i dont have sufficient information to answer your question."
         
-        # 初始化审计日志记录器
+        # Initialize audit logger
         db_manager = DatabaseManager(config.get_postgres_uri())
         self.audit_logger = get_audit_logger(db_manager)
 
@@ -163,7 +163,7 @@ class QueryProcessWorkflow:
         """Rewrite query for better accuracy"""
         self.logger.info("Rewriting query for better accuracy")
         
-        # 记录步骤开始
+        # Log step start
         request_id = state.get("request_id", "unknown")
         user_id = state.get("user_id", "unknown")
         session_id = state.get("session_id", "unknown")
@@ -173,19 +173,19 @@ class QueryProcessWorkflow:
         )
         
         try:
-            # 原有的处理逻辑
+            # Original processing logic
             rewritten_query = self.query_rewriter.run(state)
             rewrite_attempts = state.get("rewrite_attempts", 0)
             state["rewrite_attempts"] = rewrite_attempts + 1
             state["rewritten_query"] = rewritten_query
             
-            # set below as empty
+            # Set below as empty
             state["response"] = None
             state["web_results"] = []
             state["documents"] = []
             state["output_format"] = None
             
-            # 记录步骤结束
+            # Log step end
             self.audit_logger.end_step(
                 request_id, user_id, session_id, 
                 "rewrite_query", rewrite_start, {
@@ -196,7 +196,7 @@ class QueryProcessWorkflow:
             )
             
         except Exception as e:
-            # 记录错误
+            # Log error
             self.audit_logger.error_step(
                 request_id, user_id, session_id, 
                 "rewrite_query", e, {
@@ -213,7 +213,7 @@ class QueryProcessWorkflow:
         self.logger.info("Performing web search")
         query = state.get("rewritten_query", "")
         
-        # 记录步骤开始
+        # Log step start
         request_id = state.get("request_id", "unknown")
         user_id = state.get("user_id", "unknown")
         session_id = state.get("session_id", "unknown")
@@ -223,16 +223,16 @@ class QueryProcessWorkflow:
         )
         
         try:
-            # 原有的处理逻辑
+            # Original processing logic
             self.logger.debug(f"Web search query: {query}")
             results = self.web_search.run(query)
             state["web_results"] = results
             state["web_search_attempts"] = state.get("web_search_attempts", 0) + 1
-            # set it as empty list
+            # Set it as empty list
             state["documents"] = []
             state["response"] = None
             
-            # 记录步骤结束
+            # Log step end
             self.audit_logger.end_step(
                 request_id, user_id, session_id, 
                 "web_search", web_search_start, {
@@ -242,7 +242,7 @@ class QueryProcessWorkflow:
             )
             
         except Exception as e:
-            # 记录错误
+            # Log error
             self.audit_logger.error_step(
                 request_id, user_id, session_id, 
                 "web_search", e, {
@@ -259,7 +259,7 @@ class QueryProcessWorkflow:
         self.logger.info("Retrieving relevant documents")
         query = state.get("rewritten_query", "")
         
-        # 记录步骤开始
+        # Log step start
         request_id = state.get("request_id", "unknown")
         user_id = state.get("user_id", "unknown")
         session_id = state.get("session_id", "unknown")
@@ -269,17 +269,17 @@ class QueryProcessWorkflow:
         )
         
         try:
-            # 原有的处理逻辑
+            # Original processing logic
             search_config = self.config.get_query_config("search")
             documents = self.doc_retriever.run(query, relevance_threshold=search_config.get("relevance_threshold", 0.7),
                                            max_documents=search_config.get("top_k", 5))
             state["documents"] = documents
             
-            # set status as empty
+            # Set status as empty
             state["web_results"] = []
             state["response"] = None
             
-            # 记录步骤结束
+            # Log step end
             self.audit_logger.end_step(
                 request_id, user_id, session_id, 
                 "retrieve_documents", retrieve_start, {
@@ -290,7 +290,7 @@ class QueryProcessWorkflow:
             )
             
         except Exception as e:
-            # 记录错误
+            # Log error
             self.audit_logger.error_step(
                 request_id, user_id, session_id, 
                 "retrieve_documents", e, {
@@ -306,7 +306,7 @@ class QueryProcessWorkflow:
         """Generate response strictly based on available sources"""
         query = state.get("rewritten_query", "")
         
-        # 记录步骤开始
+        # Log step start
         request_id = state.get("request_id", "unknown")
         user_id = state.get("user_id", "unknown")
         session_id = state.get("session_id", "unknown")
@@ -316,7 +316,7 @@ class QueryProcessWorkflow:
         )
         
         try:
-            # 原有的处理逻辑
+            # Original processing logic
             documents = state.get("documents", [])
             web_results = state.get("web_results", [])
             
@@ -333,7 +333,7 @@ class QueryProcessWorkflow:
                 state["response"] = self.fallback_response
                 state["fallback_response"] = True
                 
-                # 记录步骤结束（使用回退响应）
+                # Log step end (using fallback response)
                 self.audit_logger.end_step(
                     request_id, user_id, session_id, 
                     "generate_response", generate_start, {
@@ -354,7 +354,7 @@ class QueryProcessWorkflow:
             response = self.llm.invoke([HumanMessage(content=prompt)]).content
             state["response"] = response
             
-            # 记录步骤结束
+            # Log step end
             self.audit_logger.end_step(
                 request_id, user_id, session_id, 
                 "generate_response", generate_start, {
@@ -370,7 +370,7 @@ class QueryProcessWorkflow:
             state["response"] = self.fallback_response
             state["fallback_response"] = True
             
-            # 记录错误
+            # Log error
             self.audit_logger.error_step(
                 request_id, user_id, session_id, 
                 "generate_response", e, {
@@ -386,7 +386,7 @@ class QueryProcessWorkflow:
         """Grade response relevance and completeness"""
         self.logger.info("Grading response relevance and completeness")
         
-        # 记录步骤开始
+        # Log step start
         request_id = state.get("request_id", "unknown")
         user_id = state.get("user_id", "unknown")
         session_id = state.get("session_id", "unknown")
@@ -396,11 +396,11 @@ class QueryProcessWorkflow:
         )
         
         try:
-            # 原有的处理逻辑
+            # Original processing logic
             if self._is_fallback_response(state):
                 self.logger.debug("Fallback response detected, returning empty response")
                 
-                # 记录步骤结束（使用回退响应）
+                # Log step end (using fallback response)
                 self.audit_logger.end_step(
                     request_id, user_id, session_id, 
                     "grade_response", grade_start, {
@@ -414,7 +414,7 @@ class QueryProcessWorkflow:
             score = self.response_grader.run(state)
             state["response_grade_score"] = score
             
-            # 记录步骤结束
+            # Log step end
             self.audit_logger.end_step(
                 request_id, user_id, session_id, 
                 "grade_response", grade_start, {
@@ -425,7 +425,7 @@ class QueryProcessWorkflow:
             )
             
         except Exception as e:
-            # 记录错误
+            # Log error
             self.audit_logger.error_step(
                 request_id, user_id, session_id, 
                 "grade_response", e, {
@@ -497,7 +497,7 @@ class QueryProcessWorkflow:
         """Generate contextually relevant follow-up questions"""
         self.logger.info("Generating suggested questions")
         
-        # 记录步骤开始
+        # Log step start
         request_id = state.get("request_id", "unknown")
         user_id = state.get("user_id", "unknown")
         session_id = state.get("session_id", "unknown")
@@ -581,7 +581,7 @@ class QueryProcessWorkflow:
                 self.logger.error(f"JSON parsing error: {str(e)}\nResponse was: {result}")
                 state["suggested_questions"] = []
 
-            # 记录步骤结束
+            # Log step end
             self.audit_logger.end_step(
                 request_id, user_id, session_id, 
                 "generate_suggested_questions", suggest_start, {
@@ -595,7 +595,7 @@ class QueryProcessWorkflow:
         except Exception as e:
             self.logger.error(f"Error generating suggested questions: {str(e)}")
             state["suggested_questions"] = []
-            # 记录错误
+            # Log error
             self.audit_logger.error_step(
                 request_id, user_id, session_id, 
                 "generate_suggested_questions", e, {
@@ -609,7 +609,7 @@ class QueryProcessWorkflow:
         """Generate citations from document and web search results"""
         self.logger.info("Generating citations")
         
-        # 记录步骤开始
+        # Log step start
         request_id = state.get("request_id", "unknown")
         user_id = state.get("user_id", "unknown")
         session_id = state.get("session_id", "unknown")
@@ -619,7 +619,7 @@ class QueryProcessWorkflow:
         )
         
         try:
-            # need to check if it's enabled or not, if not return state.
+            # Need to check if it's enabled or not, if not return state
             if not self.config.get_query_config("output.generate_citations", False) or self._is_fallback_response(state):
                 self.logger.info("Citation generation is disabled")
                 return state
@@ -661,7 +661,7 @@ class QueryProcessWorkflow:
             citations.sort(key=lambda x: x.confidence, reverse=True)
             state['citations'] = [x.source for x in citations[:3]]
             
-            # 记录步骤结束
+            # Log step end
             self.audit_logger.end_step(
                 request_id, user_id, session_id, 
                 "generate_citations", citation_start, {
@@ -673,7 +673,7 @@ class QueryProcessWorkflow:
             return state
 
         except Exception as e:
-            # 记录错误
+            # Log error
             self.audit_logger.error_step(
                 request_id, user_id, session_id, 
                 "generate_citations", e, {
@@ -688,14 +688,14 @@ class QueryProcessWorkflow:
         """
         Invoke the workflow with the given input
         """
-        # 记录工作流开始
+        # Log workflow start
         workflow_start = self.audit_logger.start_step(
             request_id, user_id, session_id, 
             "query_workflow", {"user_input": user_input, "original_query": original_query}
         )
         
         try:
-            # 原有的处理逻辑
+            # Original processing logic
             thread = {
                 'configurable': {'thread_id': 1}
             }
@@ -739,7 +739,7 @@ class QueryProcessWorkflow:
                 metadata={"output_format": final_state.values.get("output_format", "")}
             )
             
-            # 记录工作流结束
+            # Log workflow end
             self.audit_logger.end_step(
                 request_id, user_id, session_id, 
                 "query_workflow", workflow_start, {
@@ -758,10 +758,10 @@ class QueryProcessWorkflow:
                 }
             )
             
-            return response.to_dict()  # Convert to dictionary before returning
+            return response.to_dict()
             
         except Exception as e:
-            # 记录工作流错误
+            # Log workflow error
             self.audit_logger.error_step(
                 request_id, user_id, session_id, 
                 "query_workflow", e, {

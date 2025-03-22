@@ -26,7 +26,7 @@ class AuditLog(Base):
 
 
 class AuditLogger:
-    """审计日志记录器"""
+    """Audit Logger for tracking workflow steps and performance"""
     
     def __init__(self, db_manager: DatabaseManager):
         self.db_manager = db_manager
@@ -34,7 +34,7 @@ class AuditLogger:
     
     @staticmethod
     def initialize_tables(engine):
-        """初始化审计日志表"""
+        """Initialize audit log tables"""
         inspector = inspect(engine)
         if not inspector.has_table(AuditLog.__tablename__):
             logger.info(f"Creating audit log table: {AuditLog.__tablename__}")
@@ -44,7 +44,7 @@ class AuditLogger:
             logger.info(f"Audit log table already exists: {AuditLog.__tablename__}")
     
     def _ensure_table_exists(self):
-        """确保审计日志表存在"""
+        """Ensure audit log table exists"""
         try:
             AuditLogger.initialize_tables(self.db_manager.engine)
         except Exception as e:
@@ -52,10 +52,10 @@ class AuditLogger:
     
     @classmethod
     def init_database(cls, config):
-        """初始化数据库表 - 应用启动时调用"""
+        """Initialize database tables - called on application startup"""
         try:
             db_manager = DatabaseManager(config.get_postgres_uri())
-            # 初始化审计日志表
+            # Initialize audit log tables
             cls.initialize_tables(db_manager.engine)
             logger.info("Audit log database tables initialized")
             return True
@@ -65,7 +65,7 @@ class AuditLogger:
     
     def log_step(self, request_id: str, user_id: str, session_id: str, 
                 step: str, status: str, details: Optional[Dict[str, Any]] = None):
-        """记录步骤到审计日志"""
+        """Log a step to the audit log"""
         try:
             with self.db_manager.get_session() as session:
                 log_entry = AuditLog(
@@ -84,39 +84,45 @@ class AuditLogger:
     
     def start_step(self, request_id: str, user_id: str, session_id: str, 
                   step: str, details: Optional[Dict[str, Any]] = None):
-        """记录步骤开始"""
+        """Log step start"""
         self.log_step(request_id, user_id, session_id, step, "START", details)
-        return time.time()  # 返回开始时间，用于计算执行时间
+        return time.time()  # Return start time for calculating execution time
     
     def end_step(self, request_id: str, user_id: str, session_id: str, 
                 step: str, start_time: float, details: Optional[Dict[str, Any]] = None):
-        """记录步骤结束"""
-        execution_time = int(time.time() - start_time)  # 转换为整数秒
+        """Log step end"""
+        execution_time = int(time.time() - start_time)  # Convert to integer seconds
         if details is None:
             details = {}
         
-        # 将执行时间放在详情的最前面
+        # Put execution time at the beginning of details
         execution_details = {
             "execution_time": execution_time
         }
-        execution_details.update(details)  # 添加其他详情
+        execution_details.update(details)  # Add other details
         
         self.log_step(request_id, user_id, session_id, step, "END", execution_details)
     
     def error_step(self, request_id: str, user_id: str, session_id: str, 
                   step: str, error: Exception, details: Optional[Dict[str, Any]] = None):
-        """记录步骤错误"""
+        """Log step error"""
         if details is None:
             details = {}
-        details["error"] = str(error)
-        self.log_step(request_id, user_id, session_id, step, "ERROR", details)
+        
+        error_details = {
+            "error_type": type(error).__name__,
+            "error_message": str(error)
+        }
+        error_details.update(details)
+        
+        self.log_step(request_id, user_id, session_id, step, "ERROR", error_details)
 
 
-# 单例模式，全局审计日志记录器
+# Singleton pattern for global audit logger
 _audit_logger = None
 
 def get_audit_logger(db_manager: DatabaseManager = None) -> AuditLogger:
-    """获取审计日志记录器实例"""
+    """Get audit logger instance"""
     global _audit_logger
     if _audit_logger is None and db_manager is not None:
         _audit_logger = AuditLogger(db_manager)
