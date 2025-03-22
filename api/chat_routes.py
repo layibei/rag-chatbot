@@ -37,12 +37,15 @@ def process_query(
 ):
     logger.info(f"Received query: {request.user_input}")
     
-    # 记录请求开始
+    # 记录请求开始和请求数据
     start_time = audit_logger.start_step(
         x_request_id, x_user_id, x_session_id, 
-        "chat_completion", {"user_input": request.user_input}
+        "chat_completion", {
+            "user_input": request.user_input,
+            "request_data": request.dict()
+        }
     )
-
+    
     try:
         # 记录初始化处理器
         handler_start = audit_logger.start_step(
@@ -76,44 +79,61 @@ def process_query(
             x_request_id, x_user_id, x_session_id, 
             "handle_query", query_start
         )
-
-        # 记录请求结束
-        audit_logger.end_step(
-            x_request_id, x_user_id, x_session_id, 
-            "chat_completion", start_time
-        )
-
-        return JSONResponse(content=QueryResponse(
+        
+        # 构建响应
+        response = QueryResponse(
             data=result,
             user_input=request.user_input
-        ).dict(), headers={"X-User-Id": x_user_id, "X-Session-Id": x_session_id, "X-Request-Id": x_request_id})
+        )
+        
+        # 记录请求结束和响应数据
+        audit_logger.end_step(
+            x_request_id, x_user_id, x_session_id, 
+            "chat_completion", start_time, {
+                "response_data": response.dict(),
+                "status": "success"
+            }
+        )
+        
+        return JSONResponse(content=response.dict(), 
+                           headers={"X-User-Id": x_user_id, "X-Session-Id": x_session_id, "X-Request-Id": x_request_id})
 
     except ValueError as e:
         logger.error(traceback.format_exc())
-        # 记录错误
+        # 记录错误和响应数据
+        error_response = {
+            "error_message": str(e),
+            "error_code": "BAD_REQUEST"
+        }
         audit_logger.error_step(
             x_request_id, x_user_id, x_session_id, 
-            "chat_completion", e
+            "chat_completion", e, {
+                "response_data": error_response,
+                "status": "error",
+                "status_code": 400
+            }
         )
         return JSONResponse(
-            content={
-                "error_message": str(e),
-                "error_code": "BAD_REQUEST"
-            },
+            content=error_response,
             status_code=400, headers={"X-User-Id": x_user_id, "X-Session-Id": x_session_id, "X-Request-Id": x_request_id}
         )
     except Exception as e:
         logger.error(traceback.format_exc())
-        # 记录错误
+        # 记录错误和响应数据
+        error_response = {
+            "error_message": str(e),
+            "error_code": "INTERNAL_SERVER_ERROR"
+        }
         audit_logger.error_step(
             x_request_id, x_user_id, x_session_id, 
-            "chat_completion", e
+            "chat_completion", e, {
+                "response_data": error_response,
+                "status": "error",
+                "status_code": 500
+            }
         )
         return JSONResponse(
-            content={
-                "error_message": str(e),
-                "error_code": "INTERNAL_SERVER_ERROR"
-            },
+            content=error_response,
             status_code=500,
             headers={"X-User-Id": x_user_id, "X-Session-Id": x_session_id, "X-Request-Id": x_request_id}
         )
