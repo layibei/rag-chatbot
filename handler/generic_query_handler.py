@@ -164,4 +164,4 @@ if __name__ == "__main__":
     config = CommonConfig()
     config.setup_proxy()
     handler = QueryHandler(config.get_model("chatllm"), config.get_vector_store(), config)
-    handler.handle("Hello!", "user_id", "session_id", "request_id")
+    handler.handle("What's LORA?", "user_id", "session_id", "request_id")

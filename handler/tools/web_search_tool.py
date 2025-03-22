@@ -30,7 +30,7 @@ class WebSearch:
     def _initialize_search_tool(self, provider: str):
         """Initialize the appropriate search tool based on configuration"""
         try:
-            max_results = self.config.get_query_config("search.top_k", 5)
+            max_results = self.config.get_query_config("search.top_k", 5) * 2
             
             if provider == SearchProvider.GOOGLE.value:
                 # First create the API wrapper

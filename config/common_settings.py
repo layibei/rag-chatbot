@@ -75,7 +75,7 @@ class CommonConfig:
 
         raise RuntimeError("Not found the model type")
 
-    def _get_embedding_model(self, config):
+    def _get_embedding_model(self):
         self.check_config(self.config, ["app", "models", "embedding", "type"],
                           "Embedding model is not found")
         self.logger.info(f"Embedding model: {self.config['app']['models']['embedding']}")
@@ -86,7 +86,7 @@ class CommonConfig:
 
         raise RuntimeError("Not found the embedding model type")
 
-    def _get_chatllm_model(self, config):
+    def _get_chatllm_model(self):
         """Get chat LLM model with proxy configuration"""
         try:
             self.check_config(self.config, ["app", "models", "chatllm", "type"],
@@ -114,17 +114,20 @@ class CommonConfig:
             self.logger.error(f"Error initializing chat LLM: {str(e)}")
             raise
 
-    def _get_rerank_model(self, config):
+    def _get_rerank_model(self):
         self.check_config(self.config, ["app", "models", "rerank", "type"], "rerank model is not found")
         self.logger.info(f"rerank model:{self.config['app']['models']['rerank']}")
-        
+
         model_type = self.config["app"]["models"]["rerank"].get("type")
         model_name = self.config["app"]["models"]["rerank"].get("model")
-        
-        if model_type == "huggingface" and model_name is not None:
-            from langchain_huggingface import HuggingFaceEmbeddings
-            return HuggingFaceEmbeddings(model_name=model_name)
-            
+
+        if model_type == "cross-encoder" and model_name is not None:
+            from sentence_transformers import CrossEncoder
+            return CrossEncoder(
+                'cross-encoder/ms-marco-MiniLM-L12-v2',
+                max_length=1024
+            )
+
         if model_type == "bge" and model_name is not None:
             from FlagEmbedding import FlagReranker
             return FlagReranker(model_name, use_fp16=True)
@@ -136,13 +139,13 @@ class CommonConfig:
             raise TypeError("Model type must be a string")
 
         if type == "embedding":
-            return self._get_embedding_model(self.config)
+            return self._get_embedding_model()
         elif type == "llm":
-            return self._get_llm_model(self.config)
+            return self._get_llm_model()
         elif type == "chatllm":
-            return self._get_chatllm_model(self.config)
+            return self._get_chatllm_model()
         elif type == "rerank":
-            return self._get_rerank_model(self.config)
+            return self._get_rerank_model()
         else:
             raise ValueError("Invalid model type")
 
@@ -196,7 +199,8 @@ class CommonConfig:
                 "relevance_threshold": query_agent_config.get("search", {}).get("relevance_threshold", 0.7),
                 "query_expansion_enabled": query_agent_config.get("search", {}).get("query_expansion_enabled", False),
                 "graph_search_enabled": query_agent_config.get("search", {}).get("graph_search_enabled", False),
-                "hypothetical_answer_enabled": query_agent_config.get("search", {}).get("hypothetical_answer_enabled", False),
+                "hypothetical_answer_enabled": query_agent_config.get("search", {}).get("hypothetical_answer_enabled",
+                                                                                        False),
             },
             "grading": {
                 "minimum_score": query_agent_config.get("grading", {}).get("minimum_score", 0.7),
@@ -207,8 +211,10 @@ class CommonConfig:
                 "generate_citations": query_agent_config.get("output", {}).get("generate_suggested_documents", False),
                 "format": {
                     "default": query_agent_config.get("output", {}).get("format", {}).get("default", "markdown"),
-                    "detect_from_query": query_agent_config.get("output", {}).get("format", {}).get("detect_from_query", True),
-                    "include_metadata": query_agent_config.get("output", {}).get("format", {}).get("include_metadata", True),
+                    "detect_from_query": query_agent_config.get("output", {}).get("format", {}).get("detect_from_query",
+                                                                                                    True),
+                    "include_metadata": query_agent_config.get("output", {}).get("format", {}).get("include_metadata",
+                                                                                                   True),
                 }
             },
             "metrics": {
@@ -235,7 +241,7 @@ class CommonConfig:
             return default_value
 
     @lru_cache(maxsize=1)
-    def get_vector_store(self, isForCache = False) -> 'VectorStore':
+    def get_vector_store(self, isForCache=False) -> 'VectorStore':
         """Get vector store"""
         self.logger.info("Get vector store.")
         self.check_config(self.config, ["app", "embedding", "vector_store"], "app vector_store is not found.")
@@ -311,7 +317,7 @@ class CommonConfig:
     def get_nlp_spacy(self) -> Language:
         """Get NLP model"""
         import spacy
-        
+
         # Load spaCy model from local path
         model_path = Path(os.path.join(BASE_DIR, "../models/spacy/en_core_web_md"))
         if not model_path.exists():
@@ -422,7 +428,7 @@ class CommonConfig:
         except Exception as e:
             self.logger.error(f"Error getting logging config: {str(e)}")
             return "INFO" if package_name else {"root": "INFO"}
-        
+
     def get_env_variable(self, key: str) -> str:
         """Get environment variable"""
         return os.environ.get(key)
