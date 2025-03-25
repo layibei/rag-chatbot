@@ -1,6 +1,4 @@
-import re
 import traceback
-import math
 from typing import List
 
 from langchain_core.documents import Document
@@ -41,6 +39,8 @@ class DocumentRetriever:
 
         # Initialize cross-encoder for better semantic reranking
         self.cross_encoder = self.config.get_model("rerank")
+        # Get the actual tokenizer
+        self.tokenizer = self.config.get_tokenizer()
 
     def _rerank_documents(self, query: str, documents: List[Document]) -> List[Document]:
         """Rerank documents using model-based reranker or BM25"""
@@ -57,11 +57,28 @@ class DocumentRetriever:
     def _model_rerank(self, query: str, documents: List[Document]) -> List[Document]:
         """Rerank using cross-encoder for better semantic matching"""
         try:
-            # Prepare pairs for cross-encoder
-            pairs = [
-                [query, doc.page_content]
-                for doc in documents
-            ]
+            # Get query tokens length
+            query_tokens = self.tokenizer(query, add_special_tokens=False)['input_ids']
+            query_length = len(query_tokens)
+
+            # Calculate max tokens for document (512 - query_length - special_tokens)
+            max_doc_tokens = 512 - query_length - 3  # [CLS], [SEP], [SEP]
+
+            # Prepare pairs with token-aware truncation
+            pairs = []
+            for doc in documents:
+                content = doc.page_content
+                # Count actual tokens
+                content_tokens = self.tokenizer(
+                    content,
+                    add_special_tokens=False,
+                    truncation=True,
+                    max_length=max_doc_tokens
+                )['input_ids']
+
+                # Decode truncated tokens back to text
+                truncated_content = self.tokenizer.decode(content_tokens)
+                pairs.append([query, truncated_content])
 
             # Get semantic relevance scores
             scores = self.cross_encoder.predict(
@@ -75,14 +92,14 @@ class DocumentRetriever:
             scored_docs.sort(key=lambda x: x[1], reverse=True)
 
             # Log for debugging
-            for doc, score in scored_docs[:3]:
+            for doc, score in scored_docs:
                 self.logger.debug(
-                    f"Query: {query[:30]}...\n"
-                    f"Content: {doc.page_content[:50]}...\n"
+                    f"Query: {query[:200]}...\n"
+                    f"Content: {doc.page_content[:300]}...\n"
                     f"Score: {score:.3f}\n"
                 )
 
-            return [doc for doc, _ in scored_docs]
+            return [doc for doc, score in scored_docs if score > 0]
 
         except Exception as e:
             self.logger.error(f"Error during cross-encoder reranking: {str(e)}")
@@ -211,5 +228,6 @@ if __name__ == "__main__":
     documents = document_retriever._model_rerank(query, [Document(page_content="Paris is the capital of France."),
                                                          Document(page_content="Paris is a good place."),
                                                          Document(page_content="I love Beijing."),
-                                                         Document(page_content="I travelled to Paris last Summar.")])
+                                                         Document(page_content="I travelled to Paris last Sumar."),
+                                                         Document(page_content="Paris.")])
     print(documents)

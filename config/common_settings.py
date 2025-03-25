@@ -123,15 +123,24 @@ class CommonConfig:
 
         if model_type == "cross-encoder" and model_name is not None:
             from sentence_transformers import CrossEncoder
+            model_path = Path(os.path.join(BASE_DIR, "../models/models--cross-encoder--ms-marco-MiniLM-L12-v2"))
             return CrossEncoder(
-                'cross-encoder/ms-marco-MiniLM-L12-v2',
-                max_length=1024
+                # 'cross-encoder/ms-marco-MiniLM-L12-v2',
+                model_path,
+                max_length=1024,
+                local_files_only=True
             )
 
         if model_type == "bge" and model_name is not None:
             from FlagEmbedding import FlagReranker
             return FlagReranker(model_name, use_fp16=True)
 
+    def get_tokenizer(self):
+        """Get tokenizer by model name"""
+        model_path = Path(os.path.join(BASE_DIR, "../models/models--cross-encoder--ms-marco-MiniLM-L12-v2"))
+        self.logger.info(f"Get tokenizer by model name: {model_path}")
+        from transformers import AutoTokenizer
+        return AutoTokenizer.from_pretrained(model_path)
     def get_model(self, type):
         """Get model by type"""
         self.logger.info(f"Get model by type: {type}")
