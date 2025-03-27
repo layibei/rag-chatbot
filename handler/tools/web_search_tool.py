@@ -1,7 +1,9 @@
 from typing import List, Dict, Any, Optional
 from enum import Enum
 from langchain_community.tools import TavilySearchResults, GoogleSearchResults
-from langchain_community.utilities import SerpAPIWrapper, DuckDuckGoSearchAPIWrapper, GoogleSearchAPIWrapper
+from langchain_community.utilities import SerpAPIWrapper, DuckDuckGoSearchAPIWrapper, GoogleSearchAPIWrapper, \
+    BingSearchAPIWrapper
+from langchain_core.documents import Document
 
 from config.common_settings import CommonConfig
 from utils.logging_util import logger
@@ -19,6 +21,11 @@ class WebSearch:
         self.logger = logger
         self.config = config
         self.web_search_tool = None
+        self.tokenizer = self.config.get_tokenizer()
+        # Initialize cross-encoder for better semantic reranking
+        self.cross_encoder = self.config.get_model("rerank")
+        # Configure reranking
+        self.rerank_enabled = config.get_query_config("search.rerank_enabled", False)
 
         if config.get_query_config("search.web_search_enabled", False):
             self.logger.info("Web search is enabled")
@@ -42,7 +49,6 @@ class WebSearch:
                     api_wrapper=search_wrapper,
                     k=max_results
                 )
-                
                 
             elif provider == SearchProvider.SERPAPI.value:
                 # SerpAPI (paid, supports multiple search engines)
@@ -72,7 +78,58 @@ class WebSearch:
             self.logger.error(f"Error initializing search tool: {str(e)}")
             raise
 
-    def run(self, query: str) -> List[Dict[str, Any]]:
+    def _model_rerank(self, query: str, documents: List[Document]) -> List[Document]:
+        """Rerank using cross-encoder for better semantic matching"""
+        try:
+            # Get query tokens length
+            query_tokens = self.tokenizer(query, add_special_tokens=False)['input_ids']
+            query_length = len(query_tokens)
+
+            # Calculate max tokens for document (512 - query_length - special_tokens)
+            max_doc_tokens = 512 - query_length - 3  # [CLS], [SEP], [SEP]
+
+            # Prepare pairs with token-aware truncation
+            pairs = []
+            for doc in documents:
+                content = doc.page_content
+                # Count actual tokens
+                content_tokens = self.tokenizer(
+                    content,
+                    add_special_tokens=False,
+                    truncation=True,
+                    max_length=max_doc_tokens
+                )['input_ids']
+
+                # Decode truncated tokens back to text
+                truncated_content = self.tokenizer.decode(content_tokens)
+                pairs.append([query, truncated_content])
+
+            # Get semantic relevance scores
+            scores = self.cross_encoder.predict(
+                pairs,
+                batch_size=32,
+                show_progress_bar=True
+            )
+
+            # Combine documents with scores
+            scored_docs = list(zip(documents, scores))
+            scored_docs.sort(key=lambda x: x[1], reverse=True)
+
+            # Log for debugging
+            for doc, score in scored_docs:
+                self.logger.debug(
+                    f"Query: {query[:200]}...\n"
+                    f"Content: {doc.page_content[:300]}...\n"
+                    f"Score: {score:.3f}\n"
+                )
+
+            return [doc for doc, score in scored_docs if score > 0]
+
+        except Exception as e:
+            self.logger.error(f"Error during cross-encoder reranking: {str(e)}")
+            return documents
+
+    def run(self, query: str) -> List[Document]:
         """Execute web search with error handling and logging"""
         try:
             self.logger.info(f"Running web search for query: {query}")
@@ -85,7 +142,7 @@ class WebSearch:
                 self.logger.error("Web search tool not initialized")
                 return []
 
-            max_results = self.config.get_query_config("limits.max_web_results", 3)
+            max_results = self.config.get_query_config("limits.max_web_results", 3) * 2
 
             # Handle different search tool interfaces
             if isinstance(self.web_search_tool, (TavilySearchResults, GoogleSearchResults)):
@@ -98,22 +155,26 @@ class WebSearch:
                 self.logger.error(f"Unsupported search tool type: {type(self.web_search_tool)}")
                 return []
             
-            # Normalize results format across different providers
-            normalized_results = self._normalize_results(results)
+            # Convert results to LangChain Documents
+            documents = self._normalize_results(results)
 
-            if not normalized_results:
+            if not documents:
                 self.logger.warning(f"No results found for query: {query}")
                 return []
 
-            self.logger.info(f"Found {len(normalized_results)} results for query")
-            return normalized_results
+            # Apply reranking if enabled
+            if self.rerank_enabled and len(documents) > max_results:
+                documents = self._model_rerank(query, documents)
+
+            self.logger.info(f"Found {len(documents)} results for query")
+            return documents[:max_results]
             
         except Exception as e:
             self.logger.error(f"Error during web search: {str(e)}")
             return []
 
-    def _normalize_results(self, results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Normalize results format across different providers"""
+    def _normalize_results(self, results: List[Dict[str, Any]]) -> List[Document]:
+        """Normalize results format to LangChain Documents"""
         normalized = []
         
         # Handle case where results might be a single dict
@@ -125,21 +186,25 @@ class WebSearch:
                 # Handle different result formats
                 if isinstance(result, str):
                     # Some APIs might return plain text
-                    normalized.append({
-                        'title': '',
-                        'url': '',
-                        'content': result,
-                        'source': '',
-                        'published_date': ''
-                    })
+                    normalized.append(Document(
+                        page_content=result,
+                        metadata={
+                            'title': '',
+                            'url': '',
+                            'source': '',
+                            'published_date': ''
+                        }
+                    ))
                 else:
-                    normalized.append({
-                        'title': result.get('title', ''),
-                        'url': result.get('url', result.get('link', '')),
-                        'content': result.get('content', result.get('snippet', result.get('text', ''))),
-                        'source': result.get('source', ''),
-                        'published_date': result.get('published_date', '')
-                    })
+                    normalized.append(Document(
+                        page_content=result.get('content', result.get('snippet', result.get('text', ''))),
+                        metadata={
+                            'title': result.get('title', ''),
+                            'url': result.get('url', result.get('link', '')),
+                            'source': result.get('source', ''),
+                            'published_date': result.get('published_date', '')
+                        }
+                    ))
             except Exception as e:
                 self.logger.error(f"Error normalizing result: {str(e)}")
                 continue
