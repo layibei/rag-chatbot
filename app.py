@@ -138,7 +138,7 @@ app.add_middleware(
 app.include_router(chat_history_router, prefix="/chat")
 app.include_router(chat_router, prefix="/chat")
 
-# 应用启动前初始化
+# Initialize before application startup
 @app.on_event("startup")
 async def startup_event():
     """Execute on application startup"""

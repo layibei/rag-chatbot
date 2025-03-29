@@ -10,10 +10,7 @@ from langchain_community.chat_models import ChatOllama
 from config.llm_config import create_llm
 from pathlib import Path
 
-# 设置 OpenAI API key 环境变量
-# 需要一个有效的 OpenAI API key
 
-# 定义本地服务的基础 URL
 BASE_URL = "http://localhost:8080"
 
 def get_rag_responses(questions: List[str]) -> List[Dict]:
@@ -56,7 +53,7 @@ def get_rag_responses(questions: List[str]) -> List[Dict]:
 class SimpleLLMHandler:
     def __init__(self):
         self.config = CommonConfig()
-        self.llm = self.config._get_llm_model()  # 直接使用 CommonConfig 中的方法
+        self.llm = self.config._get_llm_model()  
 
     def ask(self, question: str) -> str:
         """Simple question-answering without RAG"""
@@ -126,11 +123,11 @@ def generate_html_report(responses, evaluations):
         content="\n".join(content)
     )
 
-    # 创建 reports 目录
+    
     report_dir = Path(__file__).parent / "reports"
     report_dir.mkdir(exist_ok=True)
     
-    # 生成带时间戳的报告文件名
+    
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     report_file = report_dir / f"rag_evaluation_report_{timestamp}.html"
     
@@ -144,14 +141,14 @@ def test_rag_evaluation():
     eval_dataset = load_evaluation_dataset()
     
     try:
-        # 先检查服务是否运行
+        
         health_check = requests.get(f"{BASE_URL}/docs")
         health_check.raise_for_status()
         
         # Get RAG responses from local service
         responses = get_rag_responses(eval_dataset["question"])
         
-        # 初始化简单的 LLM handler
+        
         llm_handler = SimpleLLMHandler()
         
         evaluations = []
@@ -167,11 +164,11 @@ def test_rag_evaluation():
             Rate the actual answer on relevance (0-10) and explain why:
             """
             
-            # 直接使用 LLM 进行评估
+            
             eval_result = llm_handler.ask(evaluation_prompt)
             evaluations.append(eval_result)
             
-            # 保存完整的响应信息
+            
             responses_with_expected.append({
                 "question": response["question"],
                 "answer": response["answer"],
@@ -182,7 +179,7 @@ def test_rag_evaluation():
             print(f"Answer: {response['answer']}")
             print(f"Evaluation: {eval_result}")
         
-        # 生成 HTML 报告
+        
         report_file = generate_html_report(responses_with_expected, evaluations)
         print(f"\nHTML report generated: {report_file}")
             

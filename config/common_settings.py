@@ -124,7 +124,6 @@ class CommonConfig:
         if model_type == "cross-encoder" and model_name is not None:
             from sentence_transformers import CrossEncoder
             
-            # 直接使用本地模型路径
             model_path = os.path.abspath(os.path.join(BASE_DIR, "..", "models", model_name))
             self.logger.info(f"Loading cross-encoder model from local path: {model_path}")
             
@@ -146,7 +145,6 @@ class CommonConfig:
             
             from transformers import AutoTokenizer
             
-            # 尝试直接从 Hugging Face 下载
             return AutoTokenizer.from_pretrained(model_name)
         except Exception as e:
             self.logger.error(f"Error loading tokenizer from HF Hub: {str(e)}")
@@ -156,7 +154,6 @@ class CommonConfig:
                 import os
                 from pathlib import Path
                 
-                # 使用绝对路径
                 model_path = os.path.abspath(os.path.join(BASE_DIR, "..", "models", model_name))
                 self.logger.info(f"Loading tokenizer from local path: {model_path}")
                 

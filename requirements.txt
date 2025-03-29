@@ -1,9 +1,7 @@
 python-dotenv==1.0.1
 fastapi==0.115.6
 langchain==0.3.7
-ragas==0.0.22
-datasets>=2.15.0
-evaluate>=0.4.1
+
 
 langchain-community==0.3.7
 langchain-core==0.3.18
@@ -27,7 +25,7 @@ loguru==0.7.2
 streamlit==1.41.0
 pytest>=7.0.0
 pytest-mock>=3.10.0
-pytest-asyncio>=0.23.0
+
 PyYAML~=6.0.2
 pytz~=2024.2
 xxhash~=3.5.0
