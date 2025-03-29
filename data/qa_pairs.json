@@ -1,0 +1,35 @@
+[
+  {
+    "question": "What is LORA?",
+    "answer": "LORA (Low-Rank Adaptation) is a technique for efficiently fine-tuning large language models. It works by adding small trainable matrices to the existing weights of a pre-trained model, reducing the number of parameters that need to be updated during fine-tuning. This makes fine-tuning more memory-efficient and faster, while still achieving comparable performance to full fine-tuning.",
+    "category": "machine_learning",
+    "citations": ["https://arxiv.org/abs/2106.09685"],
+    "suggested_questions": [
+      "How does LORA compare to full fine-tuning?",
+      "What are the advantages of using LORA?",
+      "Can LORA be used with any language model?"
+    ]
+  },
+  {
+    "question": "What is a vector database?",
+    "answer": "A vector database is a specialized database designed to store, manage, and search vector embeddings efficiently. Vector embeddings are numerical representations of data (like text, images, or audio) in a high-dimensional space. Vector databases use similarity search algorithms like approximate nearest neighbors (ANN) to find vectors that are similar to a query vector, which is essential for applications like semantic search, recommendation systems, and AI-powered applications.",
+    "category": "databases",
+    "citations": ["https://qdrant.tech/articles/what-is-a-vector-database/"],
+    "suggested_questions": [
+      "How do vector databases differ from traditional databases?",
+      "What are the popular vector databases available?",
+      "How are vector databases used in AI applications?"
+    ]
+  },
+  {
+    "question": "What is RAG in AI?",
+    "answer": "RAG (Retrieval-Augmented Generation) is an AI framework that combines retrieval-based and generation-based approaches. It works by first retrieving relevant documents or information from a knowledge base, and then using that information to generate more accurate and contextually relevant responses. RAG helps overcome limitations of pure language models by grounding responses in external knowledge, reducing hallucinations, and improving factual accuracy.",
+    "category": "artificial_intelligence",
+    "citations": ["https://arxiv.org/abs/2005.11401"],
+    "suggested_questions": [
+      "How does RAG improve AI responses?",
+      "What are the components of a RAG system?",
+      "What are the limitations of RAG?"
+    ]
+  }
+]
