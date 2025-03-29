@@ -40,7 +40,18 @@ class QueryHandler:
         )
 
     def handle(self, user_input: str, user_id: str, session_id: str, request_id: str) -> Dict[str, Any]:
-        """Main handler for processing user queries"""
+        """
+        Handle a user query and generate a response
+        
+        Args:
+            user_input: The user's query text
+            user_id: User identifier
+            session_id: Session identifier
+            request_id: Request identifier
+            
+        Returns:
+            Dict containing the response data
+        """
         self.logger.info(f"Handling user query, request_id:{request_id}, user_input:{user_id}")
 
         # First, route the query
@@ -111,7 +122,12 @@ class QueryHandler:
             self.logger.info(f"Processing query, user_id:{user_id}, session_id:{session_id}, request_id:{request_id}, "
                              f"user_input:{user_id}")
             workflow = QueryProcessWorkflow(self.llm, self.vector_store, self.config)
-            return workflow.invoke(user_input, user_id=user_id, request_id=request_id, session_id=session_id, original_query=original_query)
+            return workflow.process_query(
+                query=user_input,
+                user_id=user_id,
+                session_id=session_id,
+                request_id=request_id
+            )
         except Exception as e:
             self.logger.error(
                 f"Error in query processing: {str(e)}\n"

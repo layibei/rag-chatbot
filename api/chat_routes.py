@@ -15,7 +15,7 @@ from utils.audit_logger import get_audit_logger
 
 router = APIRouter(tags=['chat'])
 base_config = CommonConfig()
-db_manager = DatabaseManager(base_config.get_postgres_uri())
+db_manager = DatabaseManager(base_config.get_db_manager())
 audit_logger = get_audit_logger(db_manager)
 
 
@@ -38,7 +38,7 @@ def process_query(
 ):
     logger.info(f"Received query: {request.user_input}")
     
-    # 记录请求开始和请求数据
+    # Record request start and request data
     start_time = audit_logger.start_step(
         x_request_id, x_user_id, x_session_id, 
         "chat_completion", {
@@ -48,7 +48,7 @@ def process_query(
     )
     
     try:
-        # 记录初始化处理器
+        # Record handler initialization
         handler_start = audit_logger.start_step(
             x_request_id, x_user_id, x_session_id, "initialize_handler"
         )
@@ -64,7 +64,7 @@ def process_query(
             "initialize_handler", handler_start
         )
         
-        # 记录处理查询
+        # Record query processing
         query_start = audit_logger.start_step(
             x_request_id, x_user_id, x_session_id, "handle_query"
         )
@@ -81,13 +81,13 @@ def process_query(
             "handle_query", query_start
         )
         
-        # 构建响应
+        # Build response
         response = QueryResponse(
             data=result,
             user_input=request.user_input
         )
         
-        # 记录请求结束和响应数据
+        # Record request end and response data
         audit_logger.end_step(
             x_request_id, x_user_id, x_session_id, 
             "chat_completion", start_time, {
@@ -101,7 +101,7 @@ def process_query(
 
     except ValueError as e:
         logger.error(traceback.format_exc())
-        # 记录错误和响应数据
+        # Record error and response data
         error_response = {
             "error_message": str(e),
             "error_code": "BAD_REQUEST"
@@ -120,7 +120,7 @@ def process_query(
         )
     except Exception as e:
         logger.error(traceback.format_exc())
-        # 记录错误和响应数据
+        # Record error and response data
         error_response = {
             "error_message": str(e),
             "error_code": "INTERNAL_SERVER_ERROR"

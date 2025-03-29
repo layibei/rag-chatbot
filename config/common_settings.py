@@ -369,6 +369,7 @@ class CommonConfig:
             raise ConfigError(f"Proxy setup failed: {str(e)}")
 
     def get_db_manager(self):
+        """Get database manager instance"""
         from config.database.database_manager import DatabaseManager
         return DatabaseManager(os.environ["POSTGRES_URI"])
 

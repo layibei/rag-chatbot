@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 import time
+import uvicorn
 
 from fastapi import FastAPI, Request
 from langchain.globals import set_debug
@@ -9,15 +10,15 @@ from starlette.responses import RedirectResponse
 
 from api.chat_history_routes import router as chat_history_router
 from api.chat_routes import router as chat_router
-from api.health_routes import router as health_router
 from config.common_settings import CommonConfig
 from utils.id_util import get_id
 from utils.logging_util import logger, set_context, clear_context
-from utils.audit_logger import AuditLogger
+from utils.audit_logger import AuditLogger, get_audit_logger
 from config.database.database_manager import DatabaseManager
 
 # Global config instance
 base_config = CommonConfig()
+audit_logger = None  # Will be initialized in startup event
 
 
 class LoggingContextMiddleware(BaseHTTPMiddleware):
@@ -136,16 +137,33 @@ app.add_middleware(
 
 app.include_router(chat_history_router, prefix="/chat")
 app.include_router(chat_router, prefix="/chat")
-app.include_router(health_router, prefix="/health")
 
 # 应用启动前初始化
 @app.on_event("startup")
 async def startup_event():
-    """应用启动时执行"""
-    # 初始化数据库表
-    config = CommonConfig()
-    AuditLogger.init_database(config)
-    logger.info("Application started")
+    """Execute on application startup"""
+    try:
+        # Initialize database tables
+        config = CommonConfig()
+        
+        # Initialize database tables
+        postgres_uri = config.get_db_manager()
+        if not postgres_uri:
+            logger.error("POSTGRES_URI environment variable not set")
+            return
+            
+        db_manager = DatabaseManager(postgres_uri)
+        
+        # Initialize audit logger
+        AuditLogger.init_database(config)
+        
+        # Create global audit logger instance
+        global audit_logger
+        audit_logger = get_audit_logger(db_manager)
+        
+        logger.info("Application started successfully")
+    except Exception as e:
+        logger.error(f"Startup error: {str(e)}")
 
 @app.get("/", include_in_schema=False)
 async def root():
@@ -153,4 +171,4 @@ async def root():
 
 if __name__ == "__main__":
     # set_debug(True)
-    uvicorn.run(app, host="0.0.0.0", port=8080, reload=True)
+    uvicorn.run("app:app", host="0.0.0.0", port=8080, reload=True)
