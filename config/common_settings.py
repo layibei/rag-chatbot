@@ -139,33 +139,10 @@ class CommonConfig:
 
     def get_tokenizer(self):
         """Get tokenizer by model name"""
-        try:
-            model_name = self.config["app"]["models"]["rerank"].get("model")
-            self.logger.info(f"Getting tokenizer for model: {model_name}")
-            
-            from transformers import AutoTokenizer
-            
-            return AutoTokenizer.from_pretrained(model_name)
-        except Exception as e:
-            self.logger.error(f"Error loading tokenizer from HF Hub: {str(e)}")
-            self.logger.info("Falling back to local model path...")
-            
-            try:
-                import os
-                from pathlib import Path
-                
-                model_path = os.path.abspath(os.path.join(BASE_DIR, "..", "models", model_name))
-                self.logger.info(f"Loading tokenizer from local path: {model_path}")
-                
-                if os.path.exists(model_path):
-                    from transformers import AutoTokenizer
-                    return AutoTokenizer.from_pretrained(model_path, local_files_only=True)
-                else:
-                    self.logger.error(f"Local model path does not exist: {model_path}")
-                    raise FileNotFoundError(f"Model not found at {model_path}")
-            except Exception as inner_e:
-                self.logger.error(f"Error loading tokenizer from local path: {str(inner_e)}")
-                raise
+        model_path = Path(os.path.join(BASE_DIR, "../models/models--cross-encoder--ms-marco-MiniLM-L12-v2"))
+        self.logger.info(f"Get tokenizer by model name: {model_path}")
+        from transformers import AutoTokenizer
+        return AutoTokenizer.from_pretrained(model_path)
 
     def get_model(self, type):
         """Get model by type"""
