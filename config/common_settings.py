@@ -139,7 +139,7 @@ class CommonConfig:
 
     def get_tokenizer(self):
         """Get tokenizer by model name"""
-        model_path = Path(os.path.join(BASE_DIR, "../models/models--cross-encoder--ms-marco-MiniLM-L12-v2"))
+        model_path = Path(os.path.join(BASE_DIR, "../models/cross-encoder-ms-marco-MiniLM-L-12-v2"))
         self.logger.info(f"Get tokenizer by model name: {model_path}")
         from transformers import AutoTokenizer
         return AutoTokenizer.from_pretrained(model_path)
