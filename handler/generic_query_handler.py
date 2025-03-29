@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from conversation.conversation_history_helper import ConversationHistoryHelper
 from conversation.repositories import ConversationHistoryRepository
 from handler.workflow.query_process_workflow import QueryProcessWorkflow, QueryResponse
+from handler.tools.fast_qa_matcher import FastQAMatcher
 from utils.logging_util import logger
 from utils.prompt_loader import load_txt_prompt
 
@@ -38,6 +39,9 @@ class QueryHandler:
             prompt_path,
             input_variables=["user_input"]
         )
+        
+        # Initialize fast QA matcher
+        self.fast_qa_matcher = FastQAMatcher(config)
 
     def handle(self, user_input: str, user_id: str, session_id: str, request_id: str) -> Dict[str, Any]:
         """
@@ -54,11 +58,44 @@ class QueryHandler:
         """
         self.logger.info(f"Handling user query, request_id:{request_id}, user_input:{user_id}")
 
-        # First, route the query
+        # First, try fast QA matching
+        fast_qa_result = self.fast_qa_matcher.find_match(user_input)
+        if fast_qa_result:
+            self.logger.info(f"Fast QA match found with similarity {fast_qa_result['similarity']:.2f}")
+            
+            # Track conversation response for fast QA
+            self.conversation_helper.save_conversation(
+                user_id=user_id,
+                session_id=session_id,
+                request_id=request_id,
+                user_input=user_input,
+                response=json.dumps({
+                    "answer": fast_qa_result["answer"],
+                    "metadata": {
+                        "category": fast_qa_result.get("category", ""),
+                        "similarity": fast_qa_result["similarity"],
+                        "source": "static_qa"
+                    }
+                })
+            )
+            
+            # Return the fast QA result
+            return {
+                "answer": fast_qa_result["answer"],
+                "citations": fast_qa_result.get("citations", []),
+                "suggested_questions": fast_qa_result.get("suggested_questions", []),
+                "metadata": {
+                    "category": fast_qa_result.get("category", ""),
+                    "similarity": fast_qa_result["similarity"],
+                    "source": "static_qa"
+                }
+            }
+
+        # If no fast match, route the query
         route = self._route_query(user_input, user_id, session_id, request_id)
         self.logger.info(f"Query routed to {route}, request_id:{request_id}, user_input:{user_id}")
 
-        # Process based on routing result, curretly we only support greeting and domain query, in the future we will support more types if any.
+        # Process based on routing result
         if route == "GREETING":
             return self._process_greeting_query(user_input, user_id, session_id, request_id)
         elif route == "DOMAIN_QUERY":
@@ -122,12 +159,7 @@ class QueryHandler:
             self.logger.info(f"Processing query, user_id:{user_id}, session_id:{session_id}, request_id:{request_id}, "
                              f"user_input:{user_id}")
             workflow = QueryProcessWorkflow(self.llm, self.vector_store, self.config)
-            return workflow.process_query(
-                query=user_input,
-                user_id=user_id,
-                session_id=session_id,
-                request_id=request_id
-            )
+            return workflow.invoke(user_input, user_id=user_id, request_id=request_id, session_id=session_id, original_query=original_query)
         except Exception as e:
             self.logger.error(
                 f"Error in query processing: {str(e)}\n"

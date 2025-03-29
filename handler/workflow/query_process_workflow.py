@@ -683,36 +683,6 @@ class QueryProcessWorkflow:
             )
             return state
 
-    def process_query(self, query: str, user_id: str, session_id: str, request_id: str):
-        """
-        Process a user query through the complete workflow
-        
-        Args:
-            query: User input query
-            user_id: User identifier
-            session_id: Session identifier
-            request_id: Request identifier
-            
-        Returns:
-            Dict containing the response data
-        """
-        try:
-            # Step 1: Preprocess the query
-            preprocessed_query = self._preprocess_query(query)
-            
-            # Step 2: Search for relevant documents
-            search_results = self._search_documents(preprocessed_query)
-            
-            # Step 3: Generate response using LLM
-            response = self._generate_response(preprocessed_query, search_results)
-            
-            # Step 4: Postprocess the response
-            final_response = self._postprocess_response(response)
-            
-            return final_response
-        except Exception as e:
-            logger.error(f"Error processing query: {str(e)}")
-            raise
 
     def invoke(self, user_input: str, user_id: str, request_id: str, session_id: str, original_query: str) -> Dict[
         str, Any]:
