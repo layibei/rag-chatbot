@@ -2,7 +2,8 @@ app:
   models:
     embedding:
       type: "huggingface"
-      model: "BAAI/bge-reranker-base"
+#      model: "BAAI/bge-reranker-base"
+      model: "BAAI/bge-large-en-v1.5"
 #      model: "BAAI/bge-large-en-v1.5"
     llm:
       type: "gemini"
@@ -11,8 +12,13 @@ app:
       type: "gemini"
       model: "gemini-2.0-flash-exp"
     rerank:
-      type: "bge"
-      model: "BAAI/bge-reranker-large"
+#      type: "bge"
+#      model: "BAAI/bge-reranker-base"
+#      model: "BAAI/bge-reranker-large"
+#      model: "BAAI/bge-small-en-v1.5"
+      type: "cross-encoder"
+      model: "cross-encoder/ms-marco-MiniLM-L-12-v2"
+#      model: "cross-encoder/ms-marco-MiniLM-L-6-v2"
   embedding:
     input_path: "./data/input"
     staging_path: "./data/staging"
@@ -39,7 +45,7 @@ app:
       web_search_enabled: true
       max_retries: 1 # max retry for query rewrite
       top_k: 5 # for retrieval top n documents, equal to max_documents
-      relevance_threshold: 0.6 # for filter out low relevance documents
+      relevance_threshold: 9.0 # for filter out low relevance documents
       query_rewrite_enabled: true
     grading: # for fact checking, the lower of the score, the higher risk of hallucination
       minimum_score: 0.7
