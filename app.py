@@ -10,6 +10,7 @@ from starlette.responses import RedirectResponse
 
 from api.chat_history_routes import router as chat_history_router
 from api.chat_routes import router as chat_router
+from api.qa_management_routes import router as qa_management_router
 from config.common_settings import CommonConfig
 from utils.id_util import get_id
 from utils.logging_util import logger, set_context, clear_context
@@ -137,6 +138,7 @@ app.add_middleware(
 
 app.include_router(chat_history_router, prefix="/chat")
 app.include_router(chat_router, prefix="/chat")
+app.include_router(qa_management_router, prefix="/qa")
 
 # Initialize before application startup
 @app.on_event("startup")

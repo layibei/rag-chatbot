@@ -5,6 +5,10 @@ from typing import Dict, Any, Optional, List
 
 from utils.logging_util import logger
 
+# Import the registry function (will be defined in qa_management_routes.py)
+# This creates a circular import, so we'll use a workaround
+_register_qa_matcher = None
+
 class FastQAMatcher:
     """Fast QA matcher using cross-encoder model for semantic similarity"""
     
@@ -24,6 +28,19 @@ class FastQAMatcher:
             self.threshold = self.config.get_query_config("search.fast_qa_threshold", 0.7)
         except Exception as e:
             self.logger.warning(f"Could not get fast_qa_threshold from config, using default: {self.threshold}")
+        
+        # Register this instance for reloading
+        global _register_qa_matcher
+        if _register_qa_matcher is None:
+            # Lazy import to avoid circular imports
+            try:
+                from api.qa_management_routes import register_qa_matcher
+                _register_qa_matcher = register_qa_matcher
+            except ImportError:
+                self.logger.warning("Could not import register_qa_matcher function")
+        
+        if _register_qa_matcher:
+            _register_qa_matcher(self)
     
     def _load_qa_data(self):
         """Load QA data from JSON file"""
