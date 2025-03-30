@@ -1,40 +1,17 @@
 import pytest
-from datasets import Dataset
 from typing import List, Dict
 import json
 import requests
-import time  # 添加 time 模块
-from langchain.evaluation import load_evaluator
-from langchain_core.language_models import BaseChatModel
-from langchain_community.chat_models import ChatOpenAI
-from openai import OpenAI
+import time
+from langchain_google_genai import ChatGoogleGenerativeAI
 import os
+from config.common_settings import CommonConfig
+from langchain_community.chat_models import ChatOllama
+from config.llm_config import create_llm
+from pathlib import Path
 
-# 设置 OpenAI API key 环境变量
-# 需要一个有效的 OpenAI API key
 
-# 定义本地服务的基础 URL
 BASE_URL = "http://localhost:8080"
-
-def create_evaluation_dataset():
-    """Create a sample evaluation dataset"""
-    return {
-        "question": [
-            "What are the main components of the Kubernetes control plane?",
-            "What is the role of the kubelet in a Kubernetes cluster?",
-        ],
-        "answer": [
-            """The main components of the Kubernetes control plane include:
-                kube-apiserver: The API server that exposes the Kubernetes API and acts as the front end for the Kubernetes control plane.
-                etcd: A consistent and highly available key-value store used as Kubernetes' backing store for all cluster data.
-                kube-scheduler: A control plane component that watches for newly created Pods with no assigned node and selects a node for them to run on.
-                kube-controller-manager: A control plane component that runs controller processes, such as the Node controller, Job controller, EndpointSlice controller, and ServiceAccount controller.
-                cloud-controller-manager: A control plane component that embeds cloud-specific control logic, allowing the cluster to interact with cloud provider APIs.
-            """,
-            
-            """The kubelet is an agent that runs on each node in the cluster. It ensures that containers are running in a Pod by taking a set of PodSpecs and ensuring that the containers described in those PodSpecs are running and healthy. The kubelet does not manage containers that were not created by Kubernetes.""",
-        ]
-    }
 
 def get_rag_responses(questions: List[str]) -> List[Dict]:
     """Get RAG responses from the local API service"""
@@ -73,22 +50,109 @@ def get_rag_responses(questions: List[str]) -> List[Dict]:
             
     return responses
 
+class SimpleLLMHandler:
+    def __init__(self):
+        self.config = CommonConfig()
+        self.llm = self.config._get_llm_model()  
+
+    def ask(self, question: str) -> str:
+        """Simple question-answering without RAG"""
+        response = self.llm.invoke(question)
+        return response.content
+
+def load_evaluation_dataset():
+    """Load evaluation dataset from JSON file"""
+    data_file = Path(__file__).parent / "data" / "evaluation_dataset.json"
+    with open(data_file, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+def generate_html_report(responses, evaluations):
+    """Generate HTML report for evaluation results"""
+    html_template = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>RAG Evaluation Report</title>
+    </head>
+    <body>
+        <h1>RAG Evaluation Report</h1>
+        <p>Generated at: {timestamp}</p>
+        <hr>
+        {content}
+    </body>
+    </html>
+    """
+
+    question_template = """
+    <div>
+        <h2>Question {index}: {question}</h2>
+        <div>
+            <h3>Expected Answer:</h3>
+            <p>{expected_answer}</p>
+        </div>
+        <div>
+            <h3>Actual Answer:</h3>
+            <p>{actual_answer}</p>
+        </div>
+        <div>
+            <h3>Evaluation:</h3>
+            <p>{evaluation}</p>
+        </div>
+        <hr>
+    </div>
+    """
+
+    content = []
+    for i, (response, evaluation) in enumerate(zip(responses, evaluations), 1):
+        try:
+            content.append(question_template.format(
+                index=i,
+                question=response["question"],
+                expected_answer=response["expected_answer"].replace("\n", "<br>"),
+                actual_answer=response["answer"].replace("\n", "<br>"),
+                evaluation=evaluation.replace("\n", "<br>")
+            ))
+        except Exception as e:
+            print(f"\nError formatting content for question {i}: {e}")
+            print(f"Response data: {response}")
+            print(f"Evaluation: {evaluation}")
+
+    from datetime import datetime
+    report = html_template.format(
+        timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        content="\n".join(content)
+    )
+
+    
+    report_dir = Path(__file__).parent / "reports"
+    report_dir.mkdir(exist_ok=True)
+    
+    
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    report_file = report_dir / f"rag_evaluation_report_{timestamp}.html"
+    
+    with open(report_file, "w", encoding="utf-8") as f:
+        f.write(report)
+    
+    return report_file
+
 def test_rag_evaluation():
-    # Create evaluation dataset
-    eval_dataset = create_evaluation_dataset()
+    # Load evaluation dataset from file
+    eval_dataset = load_evaluation_dataset()
     
     try:
-        # 先检查服务是否运行
+        
         health_check = requests.get(f"{BASE_URL}/docs")
         health_check.raise_for_status()
         
         # Get RAG responses from local service
         responses = get_rag_responses(eval_dataset["question"])
         
-        # 使用 OpenAI 评估回答
-        client = OpenAI(
-            api_key=os.getenv("OPENAI_API_KEY")
-        )
+        
+        llm_handler = SimpleLLMHandler()
+        
+        evaluations = []
+        responses_with_expected = []
         
         print("\nEvaluation Results:")
         for i, response in enumerate(responses):
@@ -100,17 +164,24 @@ def test_rag_evaluation():
             Rate the actual answer on relevance (0-10) and explain why:
             """
             
-            completion = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {"role": "system", "content": "You are an AI evaluation expert. Rate the answer and explain your rating."},
-                    {"role": "user", "content": evaluation_prompt}
-                ]
-            )
+            
+            eval_result = llm_handler.ask(evaluation_prompt)
+            evaluations.append(eval_result)
+            
+            
+            responses_with_expected.append({
+                "question": response["question"],
+                "answer": response["answer"],
+                "expected_answer": eval_dataset["answer"][i]
+            })
             
             print(f"\nQuestion {i+1}: {response['question']}")
             print(f"Answer: {response['answer']}")
-            print(f"Evaluation: {completion.choices[0].message.content}")
+            print(f"Evaluation: {eval_result}")
+        
+        
+        report_file = generate_html_report(responses_with_expected, evaluations)
+        print(f"\nHTML report generated: {report_file}")
             
     except requests.RequestException as e:
         pytest.skip(f"Local service is not running or not accessible: {e}") 

@@ -1,19 +1,25 @@
 from contextlib import asynccontextmanager
 import time
+import uvicorn
 
 from fastapi import FastAPI, Request
 from langchain.globals import set_debug
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.cors import CORSMiddleware
+from starlette.responses import RedirectResponse
 
 from api.chat_history_routes import router as chat_history_router
 from api.chat_routes import router as chat_router
+from api.qa_management_routes import router as qa_management_router
 from config.common_settings import CommonConfig
 from utils.id_util import get_id
 from utils.logging_util import logger, set_context, clear_context
+from utils.audit_logger import AuditLogger, get_audit_logger
+from config.database.database_manager import DatabaseManager
 
 # Global config instance
 base_config = CommonConfig()
+audit_logger = None  # Will be initialized in startup event
 
 
 class LoggingContextMiddleware(BaseHTTPMiddleware):
@@ -112,7 +118,12 @@ async def lifespan(app: FastAPI):
         logger.info("Shutting down application...")
 
 
-app = FastAPI(lifespan=lifespan)
+app = FastAPI(
+    title="RAG Chatbot API",
+    description="API for RAG Chatbot",
+    version="0.1.0",
+    lifespan=lifespan
+)
 app.add_middleware(LoggingContextMiddleware)
 
 # Add CORS middleware
@@ -127,10 +138,39 @@ app.add_middleware(
 
 app.include_router(chat_history_router, prefix="/chat")
 app.include_router(chat_router, prefix="/chat")
+app.include_router(qa_management_router, prefix="/qa")
 
+# Initialize before application startup
+@app.on_event("startup")
+async def startup_event():
+    """Execute on application startup"""
+    try:
+        # Initialize database tables
+        config = CommonConfig()
+        
+        # Initialize database tables
+        postgres_uri = config.get_db_manager()
+        if not postgres_uri:
+            logger.error("POSTGRES_URI environment variable not set")
+            return
+            
+        db_manager = DatabaseManager(postgres_uri)
+        
+        # Initialize audit logger
+        AuditLogger.init_database(config)
+        
+        # Create global audit logger instance
+        global audit_logger
+        audit_logger = get_audit_logger(db_manager)
+        
+        logger.info("Application started successfully")
+    except Exception as e:
+        logger.error(f"Startup error: {str(e)}")
+
+@app.get("/", include_in_schema=False)
+async def root():
+    return RedirectResponse(url="/docs")
 
 if __name__ == "__main__":
     # set_debug(True)
-    import uvicorn
-
-    uvicorn.run(app, host="0.0.0.0", port=8080)
+    uvicorn.run("app:app", host="0.0.0.0", port=8080, reload=True)

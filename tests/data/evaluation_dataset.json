@@ -1,0 +1,11 @@
+{
+    "question": [
+        "1.What is LORA?",
+        "2.What is a vector database?"
+    ],
+    "answer": [
+        "LORA (Low-Rank Adaptation) is a technique for efficiently fine-tuning large language models. It works by adding small trainable matrices to the existing weights of a pre-trained model, reducing the number of parameters that need to be updated during fine-tuning. This makes fine-tuning more memory-efficient and faster, while still achieving comparable performance to full fine-tuning.",
+        
+        "A vector database is a specialized database designed to store, manage, and search vector embeddings efficiently. Vector embeddings are numerical representations of data (like text, images, or audio) in a high-dimensional space. Vector databases use similarity search algorithms like approximate nearest neighbors (ANN) to find vectors that are similar to a query vector, which is essential for applications like semantic search, recommendation systems, and AI-powered applications."
+    ]
+} 
