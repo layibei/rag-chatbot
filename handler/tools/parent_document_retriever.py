@@ -34,6 +34,7 @@ class ParentChildDocumentRetriever:
         
         # Configure parent-child settings from config
         search_config = self.config.get_query_config("search")
+        self.top_k_children = search_config.get("top_k_children", 2)
         self.parent_child_enabled = search_config.get("parent_child_enabled", False)
         
         # Only load these configurations if parent-child mode is enabled
@@ -47,31 +48,34 @@ class ParentChildDocumentRetriever:
         self.rerank_enabled = config.get_query_config("search.rerank_enabled", False)
         self.reranker = config.get_model("rerank") if self.rerank_enabled else None
         
-    def _get_parent_ids_from_children(self, child_documents: List[Document]) -> List[str]:
+    def _get_parent_ids_from_children(self, child_documents: List[Document]) -> List[Tuple[str, str]]:
         """
-        Extracts parent document IDs from child documents' metadata.
+        Extracts parent document IDs and source information from child documents' metadata.
         
         Args:
             child_documents: List of child documents retrieved from a search
             
         Returns:
-            List of unique parent document IDs
+            List of tuples containing (parent_id, source)
         """
-        parent_ids = []
+        parent_info = []
         
         for doc in child_documents:
             parent_id = doc.metadata.get("parent_id")
-            if parent_id and parent_id not in parent_ids:
-                parent_ids.append(parent_id)
+            source = doc.metadata.get("source", "")
+            
+            if parent_id and (parent_id, source) not in parent_info:
+                parent_info.append((parent_id, source))
         
-        return parent_ids
+        return parent_info
     
-    def _retrieve_parent_documents(self, parent_ids: List[str]) -> List[Document]:
+    def _retrieve_parent_documents(self, parent_info: List[Tuple[str, str]]) -> List[Document]:
         """
         Retrieve parent documents using VectorStore's metadata filtering capabilities
+        with both parent_id and source filters
         
         Args:
-            parent_ids: List of parent document IDs to retrieve
+            parent_info: List of tuples containing (parent_id, source)
             
         Returns:
             List of retrieved parent documents
@@ -79,7 +83,7 @@ class ParentChildDocumentRetriever:
         parent_documents = []
         
         try:
-            self.logger.info(f"Retrieving parent documents with IDs: {parent_ids}")
+            self.logger.info(f"Retrieving parent documents with info: {parent_info}")
             
             # Detect vector store type
             vectorstore_type = type(self.vectorstore).__name__
@@ -92,7 +96,7 @@ class ParentChildDocumentRetriever:
                 try:
                     from qdrant_client.http.models import Filter, FieldCondition, MatchValue
                     
-                    for parent_id in parent_ids:
+                    for parent_id, source in parent_info:
                         # Create Qdrant filter conditions
                         must_conditions = [
                             FieldCondition(
@@ -104,6 +108,15 @@ class ParentChildDocumentRetriever:
                                 match=MatchValue(value=True)
                             )
                         ]
+                        
+                        # Add source filter if available
+                        if source:
+                            must_conditions.append(
+                                FieldCondition(
+                                    key="metadata.source",
+                                    match=MatchValue(value=source)
+                                )
+                            )
                         
                         filter_condition = Filter(must=must_conditions)
                         
@@ -117,7 +130,7 @@ class ParentChildDocumentRetriever:
                         )
                         
                         if search_results:
-                            self.logger.info(f"Found {len(search_results)} documents with parent_id={parent_id} using Qdrant filter")
+                            self.logger.info(f"Found {len(search_results)} documents with parent_id={parent_id} and source={source} using Qdrant filter")
                             
                             for result in search_results:
                                 # Convert to Document object
@@ -129,7 +142,7 @@ class ParentChildDocumentRetriever:
                                 )
                                 parent_documents.append(doc)
                         else:
-                            self.logger.warning(f"No documents found with parent_id={parent_id} using Qdrant filter")
+                            self.logger.warning(f"No documents found with parent_id={parent_id} and source={source} using Qdrant filter")
                         
                     # If documents found, return immediately
                     if parent_documents:
@@ -142,15 +155,23 @@ class ParentChildDocumentRetriever:
             # Generic LangChain method - try different filter formats
             self.logger.info("Trying generic LangChain filtering formats")
             
-            for parent_id in parent_ids:
+            for parent_id, source in parent_info:
+                # Create base filter that will be expanded with source if available
+                base_filter = {"parent_id": parent_id, "is_parent": True}
+                if source:
+                    base_filter["source"] = source
+                
                 # Try different filter formats
                 filter_formats = [
-                    {"filter": {"parent_id": parent_id, "is_parent": True}},
-                    {"metadata": {"parent_id": parent_id, "is_parent": True}},
-                    {"parent_id": parent_id, "is_parent": True},
-                    {"filter": {"metadata": {"parent_id": parent_id, "is_parent": True}}},
-                    {"where": {"metadata.parent_id": parent_id, "metadata.is_parent": True}}
+                    {"filter": base_filter},
+                    {"metadata": base_filter},
+                    base_filter,
+                    {"filter": {"metadata": base_filter}},
                 ]
+                
+                # Add where clause format with metadata prefix for fields
+                metadata_filter = {f"metadata.{k}": v for k, v in base_filter.items()}
+                filter_formats.append({"where": metadata_filter})
                 
                 for i, filter_format in enumerate(filter_formats):
                     try:
@@ -162,7 +183,8 @@ class ParentChildDocumentRetriever:
                         )
                         
                         if docs:
-                            self.logger.info(f"Found {len(docs)} documents with parent_id={parent_id} using format {i+1}")
+                            source_str = f"and source={source}" if source else ""
+                            self.logger.info(f"Found {len(docs)} documents with parent_id={parent_id} {source_str} using format {i+1}")
                             parent_documents.extend(docs)
                             break  # Stop trying other formats after finding a working one
                     except Exception as e:
@@ -178,16 +200,18 @@ class ParentChildDocumentRetriever:
                         k=100      # Get more documents to have enough samples for filtering
                     )
                     
-                    # Filter for each parent_id
-                    for parent_id in parent_ids:
+                    # Filter for each parent_id and source
+                    for parent_id, source in parent_info:
                         filtered_docs = [
                             doc for doc in all_docs 
                             if doc.metadata.get("parent_id") == parent_id and 
-                               doc.metadata.get("is_parent") is True
+                               doc.metadata.get("is_parent") is True and
+                               (not source or doc.metadata.get("source") == source)
                         ]
                         
                         if filtered_docs:
-                            self.logger.info(f"Found {len(filtered_docs)} documents with parent_id={parent_id} via manual filtering")
+                            source_str = f"and source={source}" if source else ""
+                            self.logger.info(f"Found {len(filtered_docs)} documents with parent_id={parent_id} {source_str} via manual filtering")
                             parent_documents.extend(filtered_docs)
                 except Exception as e:
                     self.logger.error(f"Error during direct search and manual filtering: {str(e)}")
@@ -195,14 +219,18 @@ class ParentChildDocumentRetriever:
             # Finally try get_relevant_documents method as fallback
             if not parent_documents and hasattr(self.vectorstore, "get_relevant_documents"):
                 self.logger.info("Trying get_relevant_documents method as final retrieval approach")
-                for parent_id in parent_ids:
+                for parent_id, source in parent_info:
                     try:
                         filters = {"doc_id": parent_id, "is_parent": True}
+                        if source:
+                            filters["source"] = source
+                            
                         docs = self.vectorstore.get_relevant_documents(
                             "", metadata=filters
                         )
                         if docs:
-                            self.logger.info(f"Found {len(docs)} documents with parent_id={parent_id} using get_relevant_documents")
+                            source_str = f"and source={source}" if source else ""
+                            self.logger.info(f"Found {len(docs)} documents with parent_id={parent_id} {source_str} using get_relevant_documents")
                             parent_documents.extend(docs)
                     except Exception as e:
                         self.logger.warning(f"Error using get_relevant_documents for retrieval: {str(e)}")
@@ -284,7 +312,7 @@ class ParentChildDocumentRetriever:
             # Use generic retrieval method and filter manually
             child_documents = self.vectorstore.similarity_search_with_score(
                 query=query,
-                k=max_documents * 3  # Retrieve more documents to ensure enough child documents after filtering
+                k=max_documents 
             )
             
             # Extract and parse scores, only keeping child documents
@@ -295,19 +323,7 @@ class ParentChildDocumentRetriever:
                     doc.metadata["vector_score"] = score
                     scored_children.append(doc)
             
-            # If not enough child documents, try retrieving more
-            if len(scored_children) < max_documents:
-                self.logger.info(f"Only found {len(scored_children)} child documents, trying to retrieve more")
-                child_documents = self.vectorstore.similarity_search_with_score(
-                    query=query,
-                    k=max_documents * 5  # Retrieve more documents
-                )
-                
-                # Continue adding child documents
-                for doc, score in child_documents:
-                    if doc.metadata.get("is_parent") is not True and all(d.page_content != doc.page_content for d in scored_children):
-                        doc.metadata["vector_score"] = score
-                        scored_children.append(doc)
+            
             
             # Print matched child documents or "not found" message
             if not scored_children:
@@ -320,6 +336,7 @@ class ParentChildDocumentRetriever:
                     score = doc.metadata.get("vector_score", "unknown")
                     print(f"Vector similarity score: {score}")
                     print(f"Parent document ID: {doc.metadata.get('parent_id', 'unknown')}")
+                    print(f"Source: {doc.metadata.get('source', 'unknown')}")
                 print("\n=== End of child documents list ===\n")
             
             # If only child documents are requested, return them directly
@@ -340,16 +357,41 @@ class ParentChildDocumentRetriever:
                 # Limit to maximum number of documents
                 return scored_children[:max_documents]
             
-            # Get parent document IDs from child documents
-            parent_ids = self._get_parent_ids_from_children(scored_children)
+            if self.rerank_enabled and self.reranker and scored_children:
+                self.logger.info(f"Reranking {len(scored_children)} child documents before parent retrieval")
+                reranked_children = self._rerank_documents(query, scored_children)
+                
+                # just use top k
+                top_children = reranked_children[:self.top_k_children]
+                self.logger.info(f"Using top {len(top_children)} child documents after reranking")
+                
+                # print top k child documents
+                print(f"\n=== Top {len(top_children)} child documents after reranking ===")
+                for i, doc in enumerate(top_children, 1):
+                    print(f"\nTop Child Document {i}:")
+                    print(f"Content: {doc.page_content[:200]}..." if len(doc.page_content) > 200 else doc.page_content)
+                    score = doc.metadata.get("rerank_score", "unknown")
+                    print(f"Rerank score: {score}")
+                    print(f"Parent document ID: {doc.metadata.get('parent_id', 'unknown')}")
+                    print(f"Source: {doc.metadata.get('source', 'unknown')}")
+                print("\n=== End of top child documents ===\n")
+                
+                # use top k child documents to get parent document ids
+                parent_info = self._get_parent_ids_from_children(top_children)
+            else:
+                # not rerank, use all child documents
+                parent_info = self._get_parent_ids_from_children(scored_children)
+
+            # Get parent document IDs and sources from child documents
+            parent_info = self._get_parent_ids_from_children(scored_children)
             
-            if not parent_ids:
+            if not parent_info:
                 self.logger.warning("No parent document IDs found from child documents")
                 print("\n=== Could not find parent document IDs from child documents ===\n")
                 return []
                 
             # Retrieve parent documents
-            parent_documents = self._retrieve_parent_documents(parent_ids)
+            parent_documents = self._retrieve_parent_documents(parent_info)
             
             if not parent_documents:
                 self.logger.warning("Failed to retrieve parent documents")
@@ -384,64 +426,3 @@ class ParentChildDocumentRetriever:
             print(f"\n=== Error during retrieval process: {str(e)} ===\n")
             raise
 
-
-if __name__ == "__main__":
-    """
-    Simple example code to test ParentChildDocumentRetriever functionality
-    """
-    try:
-        # Initialize configuration
-        config = CommonConfig()
-        # Get vector store
-        vectorstore = config.get_vector_store()
-        # Get language model
-        llm = config.get_model("chatllm")
-        
-        # Initialize retriever
-        retriever = ParentChildDocumentRetriever(llm, vectorstore, config)
-        
-        # Test query
-        query = "How to improve the accuracy of question answering systems using RAG technology?"
-        print(f"Test query: {query}")
-        
-        # Test retrieving only child documents
-        print("\n--- Retrieving Only Child Documents ---")
-        child_documents = retriever.run(query, retrieve_only_children=True)
-        print(f"Retrieved {len(child_documents)} child documents")
-        for i, doc in enumerate(child_documents, 1):
-            print(f"\nChild Document {i}:")
-            print(f"Content: {doc.page_content[:200]}...")
-            
-            # Print scores
-            if retriever.rerank_enabled:
-                score = doc.metadata.get("rerank_score", "unknown")
-                print(f"Rerank score: {score}")
-            else:
-                score = doc.metadata.get("vector_score", "unknown")
-                print(f"Vector similarity score: {score}")
-                
-            # Print metadata
-            print(f"Metadata: {doc.metadata}")
-        
-        # Test retrieving parent documents (default behavior)
-        print("\n--- Retrieving Parent Documents (Default Behavior) ---")
-        parent_documents = retriever.run(query)
-        print(f"Retrieved {len(parent_documents)} parent documents")
-        for i, doc in enumerate(parent_documents, 1):
-            print(f"\nParent Document {i}:")
-            print(f"Content: {doc.page_content[:200]}...")
-            
-            # Print scores
-            if retriever.rerank_enabled:
-                score = doc.metadata.get("rerank_score", "unknown")
-                print(f"Rerank score: {score}")
-            else:
-                score = doc.metadata.get("vector_score", "unknown")
-                print(f"Vector similarity score: {score}")
-                
-            # Print metadata
-            print(f"Metadata: {doc.metadata}")
-            
-    except Exception as e:
-        print(f"Error during testing: {str(e)}")
-        print(traceback.format_exc()) 

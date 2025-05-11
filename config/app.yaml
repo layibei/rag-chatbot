@@ -45,6 +45,7 @@ app:
       web_search_enabled: true
       max_retries: 1 # max retry for query rewrite
       top_k: 5 # for retrieval top n documents, equal to max_documents
+      top_k_children: 2 # for rerank top n documents
       relevance_threshold: 9.0 # for filter out low relevance documents
       query_rewrite_enabled: false
       # Parent-Child retrieval configuration
